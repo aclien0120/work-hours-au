@@ -25,7 +25,7 @@ nav{position:fixed;left:50%;transform:translateX(-50%);bottom:12px;width:min(720
 </head>
 <body>
 <div class="app">
-<header><div class="brand"><h1>Work Hours AU</h1><p>工時・加班・Paid Rest・Leave</p></div><div class="pill">v3</div></header>
+<header><div class="brand"><h1>Work Hours AU</h1><p>工時・加班・Paid Rest・Leave</p></div><div class="pill">v4</div></header>
 
 <section id="today" class="page">
 <div class="card">
@@ -35,6 +35,7 @@ nav{position:fixed;left:50%;transform:translateX(-50%);bottom:12px;width:min(720
 <div><label>狀態</label><select id="status"><option>Work</option><option>Sick Leave</option><option>Annual Leave</option><option>Public Holiday</option><option>Unpaid Leave</option><option>Off</option></select></div>
 <div><label>上班</label><input id="start" type="time" value="08:00"></div>
 <div><label>下班</label><input id="end" type="time" value="16:30"></div>
+<div id="leaveHoursWrap" class="hidden"><label>Leave 時數</label><input id="leaveHours" type="number" value="7.6" min="0" max="7.6" step="0.1"></div>
 </div>
 <div class="divider"></div>
 <div class="stats">
@@ -74,9 +75,13 @@ nav{position:fixed;left:50%;transform:translateX(-50%);bottom:12px;width:min(720
 <div class="grid">
   <div><label>Full-time 起始日</label><input id="employmentStart" type="date" value="2026-07-13"></div>
   <div><label>計算到哪一天</label><input id="leaveAsOf" type="date"></div>
+  <div><label>普通工時 / 週</label><input id="ordinaryHoursWeek" type="number" value="38" step="0.1" min="1"></div>
+  <div><label>Annual Leave / 年</label><select id="annualWeeks"><option value="4">4 weeks（一般）</option><option value="5">5 weeks（符合資格的 shiftworker）</option></select></div>
 </div>
 <div class="divider"></div>
 <div class="stats">
+  <div class="stat"><div class="k">Eligible ordinary hours</div><div class="v" id="eligibleOrdinary">0.00</div></div>
+  <div class="stat peach"><div class="k">Unpaid ordinary hours</div><div class="v" id="unpaidOrdinary">0.00</div></div>
   <div class="stat"><div class="k">Annual Leave 已累積</div><div class="v" id="annualAccrued">0.00</div></div>
   <div class="stat peach"><div class="k">Sick Leave 已累積</div><div class="v" id="sickAccrued">0.00</div></div>
   <div class="stat"><div class="k">Annual Leave 已使用</div><div class="v" id="annualUsedOut">0.00</div></div>
@@ -85,10 +90,23 @@ nav{position:fixed;left:50%;transform:translateX(-50%);bottom:12px;width:min(720
   <div class="stat peach"><div class="k">Sick Leave 餘額</div><div class="v" id="sickBalance">0.00</div></div>
 </div>
 <div class="note" style="margin-top:12px">
-  從 <strong>13/07/2026</strong> 起按 full-time 38 小時/週累積。Annual Leave 以 152 小時/年、
-  Sick/Personal Leave 以 76 小時/年估算。你補登過去的 Annual / Sick Leave 後，會自動從餘額扣除。
+  v4 改用 <strong>ordinary hours</strong> 累計：Annual Leave = eligible ordinary hours × (4 ÷ 52)，
+  Sick/Personal Leave = eligible ordinary hours ÷ 26。Paid Annual/Sick Leave 與正常工作日持續累積；
+  <strong>OT 與 Paid Rest 不列入 ordinary hours</strong>；Unpaid Leave 的時數不累積。
 </div>
 <button class="btn btn-secondary btn-full" style="margin-top:14px" onclick="saveSettings()">儲存 Leave 設定</button>
+</div>
+
+<div class="card">
+<h2 class="section-title">本機資料・備份</h2>
+<div class="note">資料會自動保存在這台裝置的 Work Hours AU 網站資料中。建議定期匯出備份，尤其是在更新 App、換手機或清除 Safari 資料之前。</div>
+<div class="stat" style="margin-top:12px"><div class="k">本機資料</div><div class="v" id="storageStatus" style="font-size:18px">—</div></div>
+<div class="grid" style="margin-top:12px">
+  <button class="btn btn-primary" onclick="exportBackup()">匯出備份</button>
+  <button class="btn btn-secondary" onclick="document.getElementById('backupFile').click()">匯入備份</button>
+</div>
+<input id="backupFile" type="file" accept="application/json,.json" class="hidden" onchange="importBackup(this)">
+<p style="color:var(--muted);font-size:12px;margin-bottom:0">備份檔包含工時、Leave、Pay Period 與設定，不包含任何線上帳號資料。</p>
 </div>
 </section>
 
@@ -98,16 +116,28 @@ nav{position:fixed;left:50%;transform:translateX(-50%);bottom:12px;width:min(720
 <nav><button class="active" onclick="showPage('today',this)">Today</button><button onclick="showPage('timesheet',this)">Timesheet</button><button onclick="showPage('leave',this)">Leave</button><button onclick="showPage('check',this)">Check</button></nav>
 
 <script>
-const DEFAULTS={normalHours:7.6,fixedOT:0.4,paidRest:0.34,unpaidRest:0.17,annualHoursPerYear:152,sickHoursPerYear:76,employmentStart:'2026-07-13',normalRate:26.87,otRate:40.305};
+const DEFAULTS={normalHours:7.6,fixedOT:0.4,paidRest:0.34,unpaidRest:0.17,ordinaryHoursWeek:38,annualWeeks:4,employmentStart:'2026-07-13',normalRate:26.87,otRate:40.305};
 function todayISO(){const d=new Date();d.setMinutes(d.getMinutes()-d.getTimezoneOffset());return d.toISOString().slice(0,10)}
 function parseTime(t){if(!t)return null;const [h,m]=t.split(':').map(Number);return h+m/60}
 function round2(n){return Math.round((n+Number.EPSILON)*100)/100}
 function loadEntries(){return JSON.parse(localStorage.getItem('wha_entries')||'{}')}
 function saveEntries(v){localStorage.setItem('wha_entries',JSON.stringify(v))}
 function loadSettings(){return {...DEFAULTS,...JSON.parse(localStorage.getItem('wha_settings')||'{}')}}
-function calculate(status,start,end){const s=loadSettings();if(status==="Sick Leave")return{normal:0,ot:0,paid:0,unpaid:0,sick:s.normalHours,annual:0};if(status==="Annual Leave")return{normal:0,ot:0,paid:0,unpaid:0,sick:0,annual:s.normalHours};if(status!=="Work")return{normal:0,ot:0,paid:0,unpaid:0,sick:0,annual:0};const endH=parseTime(end);const extraRaw=Math.max(0,(endH??16.5)-16.5);const longShift=(endH??0)>18;const extended=Math.max(0,extraRaw-(longShift?0.5:0));return{normal:s.normalHours,ot:round2(s.fixedOT+extended),paid:longShift?s.paidRest:0,unpaid:longShift?s.unpaidRest:0,sick:0,annual:0}}
-function updatePreview(){const r=calculate(status.value,start.value,end.value);normalOut.textContent=r.normal.toFixed(2);otOut.textContent=r.ot.toFixed(2);paidRestOut.textContent=r.paid.toFixed(2);unpaidRestOut.textContent=r.unpaid.toFixed(2)}
-function saveEntry(){const d=date.value;if(!d){alert("請先選日期");return}const entry={date:d,status:status.value,start:start.value,end:end.value,calc:calculate(status.value,start.value,end.value)};const all=loadEntries();all[d]=entry;saveEntries(all);renderTimesheet();renderSummary();renderLeave();alert("已儲存")}
+function calculate(status,start,end,leaveH){
+  const s=loadSettings();
+  const lh=Math.max(0,Math.min(s.normalHours,parseFloat(leaveH??s.normalHours)||0));
+  if(status==="Sick Leave") return {normal:0,ot:0,paid:0,unpaid:0,sick:lh,annual:0,unpaidLeave:0};
+  if(status==="Annual Leave") return {normal:0,ot:0,paid:0,unpaid:0,sick:0,annual:lh,unpaidLeave:0};
+  if(status==="Unpaid Leave") return {normal:0,ot:0,paid:0,unpaid:0,sick:0,annual:0,unpaidLeave:lh};
+  if(status!=="Work") return {normal:0,ot:0,paid:0,unpaid:0,sick:0,annual:0,unpaidLeave:0};
+  const endH=parseTime(end);
+  const extraRaw=Math.max(0,(endH??16.5)-16.5);
+  const longShift=(endH??0)>18;
+  const extended=Math.max(0,extraRaw-(longShift?0.5:0));
+  return {normal:s.normalHours,ot:round2(s.fixedOT+extended),paid:longShift?s.paidRest:0,unpaid:longShift?s.unpaidRest:0,sick:0,annual:0,unpaidLeave:0};
+}
+function updatePreview(){updateStatusUI();const r=calculate(status.value,start.value,end.value,leaveHours.value);normalOut.textContent=r.normal.toFixed(2);otOut.textContent=r.ot.toFixed(2);paidRestOut.textContent=r.paid.toFixed(2);unpaidRestOut.textContent=r.unpaid.toFixed(2)}
+function saveEntry(){const d=date.value;if(!d){alert("請先選日期");return}const entry={date:d,status:status.value,start:start.value,end:end.value,leaveHours:parseFloat(leaveHours.value||7.6),calc:calculate(status.value,start.value,end.value,leaveHours.value)};const all=loadEntries();all[d]=entry;saveEntries(all);renderTimesheet();renderSummary();renderLeave();alert("已儲存")}
 const PAY_PERIOD_ANCHOR='2026-07-13';
 
 function isoDateLocal(d){
@@ -147,46 +177,111 @@ function changePeriod(direction){
   periodStart.value=next;
   renderTimesheet(); renderSummary();
 }
-function renderTimesheet(){const startVal=periodStart.value;if(!startVal)return;periodLabel.textContent=formatAU(startVal)+' – '+formatAU(periodEndFromStart(startVal));const entries=loadEntries();const startDate=new Date(startVal+"T00:00:00");rows.innerHTML="";for(let i=0;i<14;i++){const d=new Date(startDate);d.setDate(d.getDate()+i);const iso=d.toISOString().slice(0,10);const e=entries[iso];const label=d.toLocaleDateString('en-AU',{weekday:'short',day:'2-digit',month:'2-digit'});const div=document.createElement('div');div.className="dayrow";div.innerHTML=`<div><div class="date">${label}</div><div class="meta">${e?(e.status+(e.estimated?" · 預填":"")):"No entry"}</div></div><div class="meta">${e&&e.start?`${e.start}–${e.end}`:""}</div><div class="hours">${e?e.calc.ot.toFixed(2):"—"}<small>${e?`Paid ${e.calc.paid.toFixed(2)}`:""}</small></div>`;div.onclick=()=>{date.value=iso;if(e){status.value=e.status;start.value=e.start||"08:00";end.value=e.end||"16:30"}showPage('today',document.querySelectorAll('nav button')[0]);updatePreview()};rows.appendChild(div)}}
+function renderTimesheet(){const startVal=periodStart.value;if(!startVal)return;periodLabel.textContent=formatAU(startVal)+' – '+formatAU(periodEndFromStart(startVal));const entries=loadEntries();const startDate=new Date(startVal+"T00:00:00");rows.innerHTML="";for(let i=0;i<14;i++){const d=new Date(startDate);d.setDate(d.getDate()+i);const iso=d.toISOString().slice(0,10);const e=entries[iso];const label=d.toLocaleDateString('en-AU',{weekday:'short',day:'2-digit',month:'2-digit'});const div=document.createElement('div');div.className="dayrow";div.innerHTML=`<div><div class="date">${label}</div><div class="meta">${e?(e.status+(e.estimated?" · 預填":"")):"No entry"}</div></div><div class="meta">${e&&e.start?`${e.start}–${e.end}`:""}</div><div class="hours">${e?e.calc.ot.toFixed(2):"—"}<small>${e?`Paid ${e.calc.paid.toFixed(2)}`:""}</small></div>`;div.onclick=()=>{date.value=iso;if(e){status.value=e.status;start.value=e.start||"08:00";end.value=e.end||"16:30";leaveHours.value=e.leaveHours??7.6}showPage('today',document.querySelectorAll('nav button')[0]);updatePreview()};rows.appendChild(div)}}
 function periodEntries(){const startVal=periodStart.value;if(!startVal)return[];const entries=loadEntries();const startDate=new Date(startVal+"T00:00:00");const arr=[];for(let i=0;i<14;i++){const d=new Date(startDate);d.setDate(d.getDate()+i);const iso=d.toISOString().slice(0,10);if(entries[iso])arr.push(entries[iso])}return arr}
 function renderSummary(){const s=loadSettings();if(periodStart.value){checkPeriodLabel.textContent=formatAU(periodStart.value)+' – '+formatAU(periodEndFromStart(periodStart.value));}normalRate.value=s.normalRate;otRate.value=s.otRate;const list=periodEntries();const normal=list.reduce((a,e)=>a+(e.calc.normal||0),0),ot=list.reduce((a,e)=>a+(e.calc.ot||0),0),paid=list.reduce((a,e)=>a+(e.calc.paid||0),0);sumNormal.textContent=normal.toFixed(2);sumOT.textContent=ot.toFixed(2);sumPaid.textContent=paid.toFixed(2);sumPay.textContent="$"+(normal*s.normalRate+ot*s.otRate+paid*s.normalRate).toFixed(2)}
-function hoursAccruedBetween(startISO,endISO,hoursPerYear){
-  if(!startISO||!endISO) return 0;
-  const startD=new Date(startISO+"T00:00:00");
-  const endD=new Date(endISO+"T23:59:59");
-  if(endD<startD) return 0;
-  const days=(endD-startD)/(1000*60*60*24);
-  return hoursPerYear*(days/365.2425);
-}
 function allEntriesThrough(endISO){
   const entries=loadEntries();
   return Object.values(entries).filter(e=>e.date<=endISO);
 }
+function weekdayOrdinaryHoursBetween(startISO,endISO){
+  const s=loadSettings();
+  if(!startISO||!endISO) return {eligible:0,unpaid:0,totalScheduled:0};
+  const startD=new Date(startISO+'T00:00:00');
+  const endD=new Date(endISO+'T00:00:00');
+  if(endD<startD) return {eligible:0,unpaid:0,totalScheduled:0};
+  const entries=loadEntries();
+  const daily=s.ordinaryHoursWeek/5;
+  let eligible=0,unpaid=0,totalScheduled=0;
+  for(let d=new Date(startD);d<=endD;d.setDate(d.getDate()+1)){
+    const dow=d.getDay();
+    if(dow===0||dow===6) continue;
+    totalScheduled+=daily;
+    const iso=isoDateLocal(d);
+    const e=entries[iso];
+    let unpaidH=0;
+    if(e&&e.status==='Unpaid Leave') unpaidH=Math.min(daily,Math.max(0,parseFloat(e.leaveHours??e.calc?.unpaidLeave??daily)||0));
+    unpaid+=unpaidH;
+    eligible+=Math.max(0,daily-unpaidH);
+  }
+  return {eligible,unpaid,totalScheduled};
+}
 function renderLeave(){
   const s=loadSettings();
   employmentStart.value=s.employmentStart||'2026-07-13';
+  ordinaryHoursWeek.value=s.ordinaryHoursWeek||38;
+  annualWeeks.value=String(s.annualWeeks||4);
   if(!leaveAsOf.value) leaveAsOf.value=todayISO();
   const asOf=leaveAsOf.value;
-  const annualAcc=hoursAccruedBetween(employmentStart.value,asOf,s.annualHoursPerYear);
-  const sickAcc=hoursAccruedBetween(employmentStart.value,asOf,s.sickHoursPerYear);
+  const hrs=weekdayOrdinaryHoursBetween(employmentStart.value,asOf);
+  const annualRate=(parseFloat(annualWeeks.value)||4)/52;
+  const sickRate=1/26;
+  const annualAcc=hrs.eligible*annualRate;
+  const sickAcc=hrs.eligible*sickRate;
   const list=allEntriesThrough(asOf);
-  const annualUsed=list.reduce((a,e)=>a+(e.calc.annual||0),0);
-  const sickUsed=list.reduce((a,e)=>a+(e.calc.sick||0),0);
+  const annualUsed=list.reduce((a,e)=>a+(e.calc?.annual||0),0);
+  const sickUsed=list.reduce((a,e)=>a+(e.calc?.sick||0),0);
+  eligibleOrdinary.textContent=hrs.eligible.toFixed(2);
+  unpaidOrdinary.textContent=hrs.unpaid.toFixed(2);
   annualAccrued.textContent=annualAcc.toFixed(2);
   sickAccrued.textContent=sickAcc.toFixed(2);
   annualUsedOut.textContent=annualUsed.toFixed(2);
   sickUsedOut.textContent=sickUsed.toFixed(2);
   annualBalance.textContent=(annualAcc-annualUsed).toFixed(2);
   sickBalance.textContent=(sickAcc-sickUsed).toFixed(2);
+  updateStorageStatus();
 }
 function saveSettings(){
   const s=loadSettings();
   s.employmentStart=employmentStart.value||'2026-07-13';
+  s.ordinaryHoursWeek=parseFloat(ordinaryHoursWeek.value||38);
+  s.annualWeeks=parseFloat(annualWeeks.value||4);
   s.normalRate=parseFloat(normalRate.value||DEFAULTS.normalRate);
   s.otRate=parseFloat(otRate.value||DEFAULTS.otRate);
   localStorage.setItem('wha_settings',JSON.stringify(s));
-  renderLeave();renderSummary();
+  renderLeave();renderSummary();updateStorageStatus();
 }
+
+function updateStatusUI(){
+  const isLeave=['Sick Leave','Annual Leave','Unpaid Leave'].includes(status.value);
+  leaveHoursWrap.classList.toggle('hidden',!isLeave);
+}
+function updateStorageStatus(){
+  if(!document.getElementById('storageStatus')) return;
+  const count=Object.keys(loadEntries()).length;
+  storageStatus.textContent=count+' 天紀錄・已自動儲存';
+}
+function exportBackup(){
+  const payload={app:'Work Hours AU',schemaVersion:4,exportedAt:new Date().toISOString(),entries:loadEntries(),settings:loadSettings()};
+  const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;a.download='Work_Hours_AU_backup_'+todayISO()+'.json';
+  document.body.appendChild(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+async function importBackup(input){
+  const file=input.files&&input.files[0];
+  if(!file) return;
+  try{
+    const data=JSON.parse(await file.text());
+    if(!data||typeof data.entries!=='object'||typeof data.settings!=='object') throw new Error('Invalid backup');
+    if(!confirm('匯入會以備份內容取代目前 App 內的工時與設定。確定要繼續嗎？')){input.value='';return;}
+    saveEntries(data.entries);
+    localStorage.setItem('wha_settings',JSON.stringify({...DEFAULTS,...data.settings}));
+    localStorage.setItem('wha_seeded_v2','1');
+    const s=loadSettings();
+    employmentStart.value=s.employmentStart||'2026-07-13';
+    ordinaryHoursWeek.value=s.ordinaryHoursWeek||38;
+    annualWeeks.value=String(s.annualWeeks||4);
+    renderTimesheet();renderSummary();renderLeave();updateStorageStatus();
+    alert('備份已匯入');
+  }catch(err){
+    alert('這個檔案不是有效的 Work Hours AU 備份。');
+  }
+  input.value='';
+}
+
 function showPage(id,btn){document.querySelectorAll('.page').forEach(p=>p.classList.add('hidden'));document.getElementById(id).classList.remove('hidden');document.querySelectorAll('nav button').forEach(b=>b.classList.remove('active'));btn.classList.add('active');if(id==="timesheet")renderTimesheet();if(id==="leave")renderLeave();if(id==="check")renderSummary()}
 
 function seedHistoricalIfEmpty(){
@@ -199,7 +294,7 @@ function seedHistoricalIfEmpty(){
     const iso=d.toISOString().slice(0,10);
     const dow=d.getDay();
     if(dow>=1 && dow<=5 && !all[iso]){
-      all[iso]={date:iso,status:'Work',start:'08:00',end:'16:30',calc:calculate('Work','08:00','16:30'),estimated:true};
+      all[iso]={date:iso,status:'Work',start:'08:00',end:'16:30',leaveHours:7.6,calc:calculate('Work','08:00','16:30',7.6),estimated:true};
     }
   }
   saveEntries(all);
@@ -207,7 +302,7 @@ function seedHistoricalIfEmpty(){
 }
 
 seedHistoricalIfEmpty();
-date.value=todayISO();leaveAsOf.value=todayISO();periodStart.value=getPeriodStartForDate(todayISO());['status','start','end'].forEach(id=>document.getElementById(id).addEventListener('change',updatePreview));document.getElementById('leaveAsOf').addEventListener('change',renderLeave);document.getElementById('employmentStart').addEventListener('change',renderLeave);updatePreview();renderTimesheet();renderSummary();renderLeave();
+date.value=todayISO();leaveAsOf.value=todayISO();periodStart.value=getPeriodStartForDate(todayISO());['status','start','end','leaveHours'].forEach(id=>document.getElementById(id).addEventListener('change',updatePreview));document.getElementById('leaveAsOf').addEventListener('change',renderLeave);document.getElementById('employmentStart').addEventListener('change',renderLeave);document.getElementById('ordinaryHoursWeek').addEventListener('change',renderLeave);document.getElementById('annualWeeks').addEventListener('change',renderLeave);updateStatusUI();updatePreview();renderTimesheet();renderSummary();renderLeave();updateStorageStatus();
 if('serviceWorker' in navigator){window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}))}
 </script>
 </body>
