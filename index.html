@@ -25,14 +25,14 @@ nav{position:fixed;left:50%;transform:translateX(-50%);bottom:12px;width:min(720
 </head>
 <body>
 <div class="app">
-<header><div class="brand"><h1>Work Hours AU</h1><p>工時・加班・Paid Rest・Leave</p></div><div class="pill">v4</div></header>
+<header><div class="brand"><h1>Work Hours AU</h1><p>工時・加班・Paid Rest・Leave</p></div><div class="pill">v5</div></header>
 
 <section id="today" class="page">
 <div class="card">
 <h2 class="section-title">工時紀錄</h2><div class="note" style="margin-bottom:14px">可選擇任何日期補登。Full-time 紀錄從 <strong>13/07/2026</strong> 開始。</div>
 <div class="grid">
 <div><label>日期</label><input id="date" type="date"></div>
-<div><label>狀態</label><select id="status"><option>Work</option><option>Sick Leave</option><option>Annual Leave</option><option>Public Holiday</option><option>Unpaid Leave</option><option>Off</option></select></div>
+<div><label>狀態</label><select id="workStatus"><option value="Work">Work</option><option value="Sick Leave">Sick Leave</option><option value="Annual Leave">Annual Leave</option><option value="Public Holiday">Public Holiday</option><option value="Unpaid Leave">Unpaid Leave</option><option value="Off">Off</option><option value="" disabled>⚠️ 請重新選擇狀態</option></select></div>
 <div><label>上班</label><input id="start" type="time" value="08:00"></div>
 <div><label>下班</label><input id="end" type="time" value="16:30"></div>
 <div id="leaveHoursWrap" class="hidden"><label>Leave 時數</label><input id="leaveHours" type="number" value="7.6" min="0" max="7.6" step="0.1"></div>
@@ -55,6 +55,7 @@ nav{position:fixed;left:50%;transform:translateX(-50%);bottom:12px;width:min(720
   <div class="note" style="margin-bottom:14px">
     Pay Period 以 <strong>13/07/2026</strong> 為第一期起始日，每 14 天自動切換。
   </div>
+  <div class="note" style="margin-bottom:14px;background:#FFF0EA">若舊版曾顯示 <strong>undefined</strong>，v5 會改成「⚠️ 請重新選擇狀態」。已確認的 17/07/2026 Unpaid Leave 會自動修復。</div>
   <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px">
     <button class="btn btn-secondary" onclick="changePeriod(-1)">← 上一期</button>
     <button class="btn btn-primary" onclick="goCurrentPeriod()">本期</button>
@@ -136,8 +137,24 @@ function calculate(status,start,end,leaveH){
   const extended=Math.max(0,extraRaw-(longShift?0.5:0));
   return {normal:s.normalHours,ot:round2(s.fixedOT+extended),paid:longShift?s.paidRest:0,unpaid:longShift?s.unpaidRest:0,sick:0,annual:0,unpaidLeave:0};
 }
-function updatePreview(){updateStatusUI();const r=calculate(status.value,start.value,end.value,leaveHours.value);normalOut.textContent=r.normal.toFixed(2);otOut.textContent=r.ot.toFixed(2);paidRestOut.textContent=r.paid.toFixed(2);unpaidRestOut.textContent=r.unpaid.toFixed(2)}
-function saveEntry(){const d=date.value;if(!d){alert("請先選日期");return}const entry={date:d,status:status.value,start:start.value,end:end.value,leaveHours:parseFloat(leaveHours.value||7.6),calc:calculate(status.value,start.value,end.value,leaveHours.value)};const all=loadEntries();all[d]=entry;saveEntries(all);renderTimesheet();renderSummary();renderLeave();alert("已儲存")}
+function updatePreview(){updateStatusUI();const r=calculate(document.getElementById('workStatus').value,start.value,end.value,leaveHours.value);normalOut.textContent=r.normal.toFixed(2);otOut.textContent=r.ot.toFixed(2);paidRestOut.textContent=r.paid.toFixed(2);unpaidRestOut.textContent=r.unpaid.toFixed(2)}
+function saveEntry(){
+  const d=document.getElementById('date').value;
+  const ws=document.getElementById('workStatus').value;
+  if(!d){alert("請先選日期");return}
+  if(!ws){alert("請重新選擇這一天的狀態");return}
+  const entry={
+    date:d,
+    status:ws,
+    start:document.getElementById('start').value,
+    end:document.getElementById('end').value,
+    leaveHours:parseFloat(document.getElementById('leaveHours').value||7.6),
+    calc:calculate(ws,document.getElementById('start').value,document.getElementById('end').value,document.getElementById('leaveHours').value)
+  };
+  const all=loadEntries();all[d]=entry;saveEntries(all);
+  renderTimesheet();renderSummary();renderLeave();updateStorageStatus();
+  alert("已儲存");
+}
 const PAY_PERIOD_ANCHOR='2026-07-13';
 
 function isoDateLocal(d){
@@ -177,7 +194,7 @@ function changePeriod(direction){
   periodStart.value=next;
   renderTimesheet(); renderSummary();
 }
-function renderTimesheet(){const startVal=periodStart.value;if(!startVal)return;periodLabel.textContent=formatAU(startVal)+' – '+formatAU(periodEndFromStart(startVal));const entries=loadEntries();const startDate=new Date(startVal+"T00:00:00");rows.innerHTML="";for(let i=0;i<14;i++){const d=new Date(startDate);d.setDate(d.getDate()+i);const iso=d.toISOString().slice(0,10);const e=entries[iso];const label=d.toLocaleDateString('en-AU',{weekday:'short',day:'2-digit',month:'2-digit'});const div=document.createElement('div');div.className="dayrow";div.innerHTML=`<div><div class="date">${label}</div><div class="meta">${e?(e.status+(e.estimated?" · 預填":"")):"No entry"}</div></div><div class="meta">${e&&e.start?`${e.start}–${e.end}`:""}</div><div class="hours">${e?e.calc.ot.toFixed(2):"—"}<small>${e?`Paid ${e.calc.paid.toFixed(2)}`:""}</small></div>`;div.onclick=()=>{date.value=iso;if(e){status.value=e.status;start.value=e.start||"08:00";end.value=e.end||"16:30";leaveHours.value=e.leaveHours??7.6}showPage('today',document.querySelectorAll('nav button')[0]);updatePreview()};rows.appendChild(div)}}
+function renderTimesheet(){const startVal=periodStart.value;if(!startVal)return;periodLabel.textContent=formatAU(startVal)+' – '+formatAU(periodEndFromStart(startVal));const entries=loadEntries();const startDate=new Date(startVal+"T00:00:00");rows.innerHTML="";for(let i=0;i<14;i++){const d=new Date(startDate);d.setDate(d.getDate()+i);const iso=d.toISOString().slice(0,10);const e=entries[iso];const label=d.toLocaleDateString('en-AU',{weekday:'short',day:'2-digit',month:'2-digit'});const div=document.createElement('div');div.className="dayrow";div.innerHTML=`<div><div class="date">${label}</div><div class="meta">${e?((e.status||"⚠️ 請重新選擇狀態")+(e.estimated?" · 預填":"")):"No entry"}</div></div><div class="meta">${e&&e.start?`${e.start}–${e.end}`:""}</div><div class="hours">${e?e.calc.ot.toFixed(2):"—"}<small>${e?`Paid ${e.calc.paid.toFixed(2)}`:""}</small></div>`;div.onclick=()=>{date.value=iso;if(e){document.getElementById('workStatus').value=e.status||'';start.value=e.start||"08:00";end.value=e.end||"16:30";leaveHours.value=e.leaveHours??7.6}showPage('today',document.querySelectorAll('nav button')[0]);updatePreview()};rows.appendChild(div)}}
 function periodEntries(){const startVal=periodStart.value;if(!startVal)return[];const entries=loadEntries();const startDate=new Date(startVal+"T00:00:00");const arr=[];for(let i=0;i<14;i++){const d=new Date(startDate);d.setDate(d.getDate()+i);const iso=d.toISOString().slice(0,10);if(entries[iso])arr.push(entries[iso])}return arr}
 function renderSummary(){const s=loadSettings();if(periodStart.value){checkPeriodLabel.textContent=formatAU(periodStart.value)+' – '+formatAU(periodEndFromStart(periodStart.value));}normalRate.value=s.normalRate;otRate.value=s.otRate;const list=periodEntries();const normal=list.reduce((a,e)=>a+(e.calc.normal||0),0),ot=list.reduce((a,e)=>a+(e.calc.ot||0),0),paid=list.reduce((a,e)=>a+(e.calc.paid||0),0);sumNormal.textContent=normal.toFixed(2);sumOT.textContent=ot.toFixed(2);sumPaid.textContent=paid.toFixed(2);sumPay.textContent="$"+(normal*s.normalRate+ot*s.otRate+paid*s.normalRate).toFixed(2)}
 function allEntriesThrough(endISO){
@@ -243,7 +260,7 @@ function saveSettings(){
 }
 
 function updateStatusUI(){
-  const isLeave=['Sick Leave','Annual Leave','Unpaid Leave'].includes(status.value);
+  const isLeave=['Sick Leave','Annual Leave','Unpaid Leave'].includes(document.getElementById('workStatus').value);
   leaveHoursWrap.classList.toggle('hidden',!isLeave);
 }
 function updateStorageStatus(){
@@ -284,6 +301,29 @@ async function importBackup(input){
 
 function showPage(id,btn){document.querySelectorAll('.page').forEach(p=>p.classList.add('hidden'));document.getElementById(id).classList.remove('hidden');document.querySelectorAll('nav button').forEach(b=>b.classList.remove('active'));btn.classList.add('active');if(id==="timesheet")renderTimesheet();if(id==="leave")renderLeave();if(id==="check")renderSummary()}
 
+
+function repairV4SafariStatusBug(){
+  const migrationKey='wha_v5_status_repair_done';
+  if(localStorage.getItem(migrationKey)) return;
+  const all=loadEntries();
+
+  // User explicitly confirmed 17/07/2026 was one full day of Unpaid Leave.
+  const known=all['2026-07-17'];
+  if(known && !known.status){
+    known.status='Unpaid Leave';
+    known.leaveHours=7.6;
+    known.start=known.start||'08:00';
+    known.end=known.end||'16:30';
+    known.calc=calculate('Unpaid Leave',known.start,known.end,7.6);
+    known.estimated=false;
+    all['2026-07-17']=known;
+  }
+
+  // Do not guess any other malformed entries. Mark them for review in the UI.
+  saveEntries(all);
+  localStorage.setItem(migrationKey,'1');
+}
+
 function seedHistoricalIfEmpty(){
   const key='wha_seeded_v2';
   if(localStorage.getItem(key)) return;
@@ -302,7 +342,8 @@ function seedHistoricalIfEmpty(){
 }
 
 seedHistoricalIfEmpty();
-date.value=todayISO();leaveAsOf.value=todayISO();periodStart.value=getPeriodStartForDate(todayISO());['status','start','end','leaveHours'].forEach(id=>document.getElementById(id).addEventListener('change',updatePreview));document.getElementById('leaveAsOf').addEventListener('change',renderLeave);document.getElementById('employmentStart').addEventListener('change',renderLeave);document.getElementById('ordinaryHoursWeek').addEventListener('change',renderLeave);document.getElementById('annualWeeks').addEventListener('change',renderLeave);updateStatusUI();updatePreview();renderTimesheet();renderSummary();renderLeave();updateStorageStatus();
+repairV4SafariStatusBug();
+date.value=todayISO();leaveAsOf.value=todayISO();periodStart.value=getPeriodStartForDate(todayISO());['workStatus','start','end','leaveHours'].forEach(id=>document.getElementById(id).addEventListener('change',updatePreview));document.getElementById('leaveAsOf').addEventListener('change',renderLeave);document.getElementById('employmentStart').addEventListener('change',renderLeave);document.getElementById('ordinaryHoursWeek').addEventListener('change',renderLeave);document.getElementById('annualWeeks').addEventListener('change',renderLeave);updateStatusUI();updatePreview();renderTimesheet();renderSummary();renderLeave();updateStorageStatus();
 if('serviceWorker' in navigator){window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}))}
 </script>
 </body>
