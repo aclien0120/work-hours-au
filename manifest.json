@@ -1,0 +1,8 @@
+{
+  "name": "Work Hours AU",
+  "short_name": "Work Hours",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#FFF7D6",
+  "theme_color": "#F7E7A9"
+}
