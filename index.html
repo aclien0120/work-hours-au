@@ -7,7 +7,6 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Work Hours AU">
-<link rel="manifest" href="manifest.json">
 
 <title>Work Hours AU</title>
 <style>
@@ -55,7 +54,7 @@ body.pin-locked .app,body.pin-locked nav{visibility:hidden}
       <input id="confirmPin" class="pin-input" type="password" inputmode="numeric" maxlength="6" autocomplete="new-password" placeholder="••••">
       <div id="setupPinError" class="pin-error"></div>
       <button class="btn btn-primary btn-full" onclick="setupPin()">設定 PIN</button>
-      <p style="font-size:12px;margin-bottom:0">PIN 不會上傳到 GitHub，也不會包含在備份檔中。</p>
+      <p style="font-size:12px;margin-bottom:0">PIN 不會上傳到 GitHub，也不會包含在備份檔中。若你直接從 iPhone「檔案」開單檔測試版，iOS 可能使用臨時儲存；正式使用請以 GitHub Pages HTTPS 版本為準。</p>
     </div>
 
     <div id="pinUnlockView" class="hidden">
@@ -76,7 +75,7 @@ body.pin-locked .app,body.pin-locked nav{visibility:hidden}
 <div class="brand"><h1>Work Hours AU</h1><p>工時・加班・Paid Rest・Leave</p></div>
 <div class="pin-header-actions">
   <button class="pin-lock-btn" onclick="lockApp()">🔒 鎖定</button>
-  <div class="pill">v6</div>
+  <div class="pill">v7.1</div>
 </div>
 </header>
 
@@ -108,7 +107,7 @@ body.pin-locked .app,body.pin-locked nav{visibility:hidden}
   <div class="note" style="margin-bottom:14px">
     Pay Period 以 <strong>13/07/2026</strong> 為第一期起始日，每 14 天自動切換。
   </div>
-  <div class="note" style="margin-bottom:14px;background:#FFF0EA">若舊版曾顯示 <strong>undefined</strong>，v5 會改成「⚠️ 請重新選擇狀態」。已確認的 17/07/2026 Unpaid Leave 會自動修復。</div>
+  <div class="note" style="margin-bottom:14px;background:#FFF0EA">v7 已修正澳洲時區日期偏移問題。點選 17/07 時，編輯頁與儲存鍵都會維持 17/07，不再跳成 16/07。</div>
   <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px">
     <button class="btn btn-secondary" onclick="changePeriod(-1)">← 上一期</button>
     <button class="btn btn-primary" onclick="goCurrentPeriod()">本期</button>
@@ -161,6 +160,10 @@ body.pin-locked .app,body.pin-locked nav{visibility:hidden}
 </div>
 <input id="backupFile" type="file" accept="application/json,.json" class="hidden" onchange="importBackup(this)">
 <p style="color:var(--muted);font-size:12px;margin-bottom:0">備份檔包含工時、Leave、Pay Period 與設定，不包含任何線上帳號資料。</p>
+<div class="note" style="margin-top:12px;background:#FFF0EA">
+  <strong>v7 日期修復：</strong>已改用 iPhone 本地日曆日期，不再用 UTC 轉換。若舊版資料被整體錯移一天，v7 會在第一次開啟時自動修復，並保留一份修復前的本機副本。
+</div>
+<button class="btn btn-secondary btn-full" style="margin-top:10px" onclick="restorePreV7DateBackup()">復原 v7 日期修復前資料</button>
 </div>
 </section>
 
@@ -182,6 +185,40 @@ body.pin-locked .app,body.pin-locked nav{visibility:hidden}
 
 <script>
 
+
+// ---------- Safari / local-file compatibility ----------
+const $ = id => document.getElementById(id);
+const pinOverlay=$('pinOverlay'), pinSetupView=$('pinSetupView'), newPin=$('newPin'),
+      confirmPin=$('confirmPin'), setupPinError=$('setupPinError'),
+      pinUnlockView=$('pinUnlockView'), unlockPin=$('unlockPin'),
+      unlockPinError=$('unlockPinError'), date=$('date'), start=$('start'), end=$('end'),
+      leaveHours=$('leaveHours'), normalOut=$('normalOut'), otOut=$('otOut'),
+      paidRestOut=$('paidRestOut'), unpaidRestOut=$('unpaidRestOut'),
+      periodLabel=$('periodLabel'), periodStart=$('periodStart'), rows=$('rows'),
+      employmentStart=$('employmentStart'), leaveAsOf=$('leaveAsOf'),
+      ordinaryHoursWeek=$('ordinaryHoursWeek'), annualWeeks=$('annualWeeks'),
+      eligibleOrdinary=$('eligibleOrdinary'), unpaidOrdinary=$('unpaidOrdinary'),
+      annualAccrued=$('annualAccrued'), sickAccrued=$('sickAccrued'),
+      annualUsedOut=$('annualUsedOut'), sickUsedOut=$('sickUsedOut'),
+      annualBalance=$('annualBalance'), sickBalance=$('sickBalance'),
+      storageStatus=$('storageStatus'), backupFile=$('backupFile'),
+      checkPeriodLabel=$('checkPeriodLabel'), sumNormal=$('sumNormal'), sumOT=$('sumOT'),
+      sumPaid=$('sumPaid'), sumPay=$('sumPay'), normalRate=$('normalRate'), otRate=$('otRate');
+
+const memoryStorage={};
+function safeGetItem(k){
+  try{return localStorage.getItem(k)}catch(e){return Object.prototype.hasOwnProperty.call(memoryStorage,k)?memoryStorage[k]:null}
+}
+function safeSetItem(k,v){
+  try{localStorage.setItem(k,v);return true}catch(e){memoryStorage[k]=String(v);return false}
+}
+function safeRemoveItem(k){
+  try{localStorage.removeItem(k)}catch(e){delete memoryStorage[k]}
+}
+function safeClear(){
+  try{localStorage.clear()}catch(e){Object.keys(memoryStorage).forEach(k=>delete memoryStorage[k])}
+}
+
 // ---------- PIN Lock ----------
 const PIN_STORAGE_KEY='wha_pin_v1';
 let suspendAutoLock=false;
@@ -194,24 +231,32 @@ function b64ToBytes(s){
   const raw=atob(s); return Uint8Array.from(raw,c=>c.charCodeAt(0));
 }
 async function derivePinHash(pin,saltB64){
-  const enc=new TextEncoder();
-  const key=await crypto.subtle.importKey('raw',enc.encode(pin),'PBKDF2',false,['deriveBits']);
-  const bits=await crypto.subtle.deriveBits(
-    {name:'PBKDF2',salt:b64ToBytes(saltB64),iterations:120000,hash:'SHA-256'},
-    key,256
-  );
-  return bytesToB64(new Uint8Array(bits));
+  if(globalThis.crypto && crypto.subtle && typeof TextEncoder!=='undefined'){
+    const enc=new TextEncoder();
+    const key=await crypto.subtle.importKey('raw',enc.encode(pin),'PBKDF2',false,['deriveBits']);
+    const bits=await crypto.subtle.deriveBits(
+      {name:'PBKDF2',salt:b64ToBytes(saltB64),iterations:120000,hash:'SHA-256'},
+      key,256
+    );
+    return bytesToB64(new Uint8Array(bits));
+  }
+  // Compatibility fallback only for local HTML preview where Web Crypto is unavailable.
+  let h1=2166136261>>>0, text=pin+'|'+saltB64;
+  for(let i=0;i<text.length;i++){h1^=text.charCodeAt(i);h1=Math.imul(h1,16777619)>>>0;}
+  return 'local-preview-'+h1.toString(16);
 }
 function validPin(pin){ return /^[0-9]{4,6}$/.test(pin); }
 
 async function createPinConfig(pin){
-  const salt=new Uint8Array(16); crypto.getRandomValues(salt);
+  const salt=new Uint8Array(16);
+  if(globalThis.crypto && crypto.getRandomValues) crypto.getRandomValues(salt);
+  else for(let i=0;i<salt.length;i++) salt[i]=(Math.random()*256)|0;
   const saltB64=bytesToB64(salt);
   const hash=await derivePinHash(pin,saltB64);
-  localStorage.setItem(PIN_STORAGE_KEY,JSON.stringify({v:1,salt:saltB64,hash}));
+  safeSetItem(PIN_STORAGE_KEY,JSON.stringify({v:1,salt:saltB64,hash}));
 }
 function loadPinConfig(){
-  try{return JSON.parse(localStorage.getItem(PIN_STORAGE_KEY)||'null')}catch(e){return null}
+  try{return JSON.parse(safeGetItem(PIN_STORAGE_KEY)||'null')}catch(e){return null}
 }
 function showPinMode(mode){
   document.body.classList.add('pin-locked');
@@ -290,7 +335,7 @@ async function changePin(){
 function forgotPin(){
   if(!confirm('忘記 PIN 無法直接繞過鎖定。要重設 App 嗎？這會刪除這台裝置上的所有工時、Leave、設定與 PIN。'))return;
   if(!confirm('最後確認：本機資料會全部刪除。若你有 JSON 備份，可以之後再匯入。'))return;
-  localStorage.clear();
+  safeClear();
   location.reload();
 }
 function openBackupPicker(){
@@ -318,12 +363,25 @@ document.addEventListener('keydown',(e)=>{
 
 
 const DEFAULTS={normalHours:7.6,fixedOT:0.4,paidRest:0.34,unpaidRest:0.17,ordinaryHoursWeek:38,annualWeeks:4,employmentStart:'2026-07-13',normalRate:26.87,otRate:40.305};
-function todayISO(){const d=new Date();d.setMinutes(d.getMinutes()-d.getTimezoneOffset());return d.toISOString().slice(0,10)}
+function pad2(n){return String(n).padStart(2,'0')}
+function localDateKey(d){
+  return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate());
+}
+function dateFromKey(iso){
+  const [y,m,d]=iso.split('-').map(Number);
+  return new Date(y,m-1,d,12,0,0,0);
+}
+function addDaysKey(iso,days){
+  const d=dateFromKey(iso);
+  d.setDate(d.getDate()+days);
+  return localDateKey(d);
+}
+function todayISO(){return localDateKey(new Date())}
 function parseTime(t){if(!t)return null;const [h,m]=t.split(':').map(Number);return h+m/60}
 function round2(n){return Math.round((n+Number.EPSILON)*100)/100}
-function loadEntries(){return JSON.parse(localStorage.getItem('wha_entries')||'{}')}
-function saveEntries(v){localStorage.setItem('wha_entries',JSON.stringify(v))}
-function loadSettings(){return {...DEFAULTS,...JSON.parse(localStorage.getItem('wha_settings')||'{}')}}
+function loadEntries(){return JSON.parse(safeGetItem('wha_entries')||'{}')}
+function saveEntries(v){safeSetItem('wha_entries',JSON.stringify(v))}
+function loadSettings(){return {...DEFAULTS,...JSON.parse(safeGetItem('wha_settings')||'{}')}}
 function calculate(status,start,end,leaveH){
   const s=loadSettings();
   const lh=Math.max(0,Math.min(s.normalHours,parseFloat(leaveH??s.normalHours)||0));
@@ -357,25 +415,17 @@ function saveEntry(){
 }
 const PAY_PERIOD_ANCHOR='2026-07-13';
 
-function isoDateLocal(d){
-  const x=new Date(d);
-  x.setMinutes(x.getMinutes()-x.getTimezoneOffset());
-  return x.toISOString().slice(0,10);
-}
+function isoDateLocal(d){return localDateKey(d)}
 function getPeriodStartForDate(dateISO){
-  const anchor=new Date(PAY_PERIOD_ANCHOR+'T00:00:00');
-  const target=new Date(dateISO+'T00:00:00');
-  const diffDays=Math.floor((target-anchor)/(1000*60*60*24));
+  const anchor=dateFromKey(PAY_PERIOD_ANCHOR);
+  const target=dateFromKey(dateISO);
+  const utcAnchor=Date.UTC(anchor.getFullYear(),anchor.getMonth(),anchor.getDate());
+  const utcTarget=Date.UTC(target.getFullYear(),target.getMonth(),target.getDate());
+  const diffDays=Math.floor((utcTarget-utcAnchor)/86400000);
   const periodIndex=Math.floor(diffDays/14);
-  const start=new Date(anchor);
-  start.setDate(start.getDate()+periodIndex*14);
-  return isoDateLocal(start);
+  return addDaysKey(PAY_PERIOD_ANCHOR,periodIndex*14);
 }
-function periodEndFromStart(startISO){
-  const d=new Date(startISO+'T00:00:00');
-  d.setDate(d.getDate()+13);
-  return isoDateLocal(d);
-}
+function periodEndFromStart(startISO){return addDaysKey(startISO,13)}
 function formatAU(iso){
   const d=new Date(iso+'T00:00:00');
   return d.toLocaleDateString('en-AU',{day:'2-digit',month:'2-digit',year:'numeric'});
@@ -386,16 +436,50 @@ function goCurrentPeriod(){
 }
 function changePeriod(direction){
   const current=periodStart.value||getPeriodStartForDate(todayISO());
-  const d=new Date(current+'T00:00:00');
-  d.setDate(d.getDate()+direction*14);
-  const next=isoDateLocal(d);
-  const anchor=new Date(PAY_PERIOD_ANCHOR+'T00:00:00');
-  if(new Date(next+'T00:00:00')<anchor) return;
+  const next=addDaysKey(current,direction*14);
+  if(next<PAY_PERIOD_ANCHOR) return;
   periodStart.value=next;
-  renderTimesheet(); renderSummary();
+  renderTimesheet();renderSummary();
 }
-function renderTimesheet(){const startVal=periodStart.value;if(!startVal)return;periodLabel.textContent=formatAU(startVal)+' – '+formatAU(periodEndFromStart(startVal));const entries=loadEntries();const startDate=new Date(startVal+"T00:00:00");rows.innerHTML="";for(let i=0;i<14;i++){const d=new Date(startDate);d.setDate(d.getDate()+i);const iso=d.toISOString().slice(0,10);const e=entries[iso];const label=d.toLocaleDateString('en-AU',{weekday:'short',day:'2-digit',month:'2-digit'});const div=document.createElement('div');div.className="dayrow";div.innerHTML=`<div><div class="date">${label}</div><div class="meta">${e?((e.status||"⚠️ 請重新選擇狀態")+(e.estimated?" · 預填":"")):"No entry"}</div></div><div class="meta">${e&&e.start?`${e.start}–${e.end}`:""}</div><div class="hours">${e?e.calc.ot.toFixed(2):"—"}<small>${e?`Paid ${e.calc.paid.toFixed(2)}`:""}</small></div>`;div.onclick=()=>{date.value=iso;if(e){document.getElementById('workStatus').value=e.status||'';start.value=e.start||"08:00";end.value=e.end||"16:30";leaveHours.value=e.leaveHours??7.6}showPage('today',document.querySelectorAll('nav button')[0]);updatePreview()};rows.appendChild(div)}}
-function periodEntries(){const startVal=periodStart.value;if(!startVal)return[];const entries=loadEntries();const startDate=new Date(startVal+"T00:00:00");const arr=[];for(let i=0;i<14;i++){const d=new Date(startDate);d.setDate(d.getDate()+i);const iso=d.toISOString().slice(0,10);if(entries[iso])arr.push(entries[iso])}return arr}
+function renderTimesheet(){
+  const startVal=periodStart.value;
+  if(!startVal)return;
+  periodLabel.textContent=formatAU(startVal)+' – '+formatAU(periodEndFromStart(startVal));
+  const entries=loadEntries();
+  rows.innerHTML='';
+  for(let i=0;i<14;i++){
+    const iso=addDaysKey(startVal,i);
+    const d=dateFromKey(iso);
+    const e=entries[iso];
+    const label=d.toLocaleDateString('en-AU',{weekday:'short',day:'2-digit',month:'2-digit'});
+    const div=document.createElement('div');
+    div.className='dayrow';
+    div.innerHTML=`<div><div class="date">${label}</div><div class="meta">${e?((e.status||"⚠️ 請重新選擇狀態")+(e.estimated?" · 預填":"")):"No entry"}</div></div><div class="meta">${e&&e.start?`${e.start}–${e.end}`:""}</div><div class="hours">${e?e.calc.ot.toFixed(2):"—"}<small>${e?`Paid ${e.calc.paid.toFixed(2)}`:""}</small></div>`;
+    div.onclick=()=>{
+      document.getElementById('date').value=iso;
+      if(e){
+        document.getElementById('workStatus').value=e.status||'';
+        document.getElementById('start').value=e.start||'08:00';
+        document.getElementById('end').value=e.end||'16:30';
+        document.getElementById('leaveHours').value=e.leaveHours??7.6;
+      }
+      showPage('today',document.querySelectorAll('nav button')[0]);
+      updatePreview();
+    };
+    rows.appendChild(div);
+  }
+}
+function periodEntries(){
+  const startVal=periodStart.value;
+  if(!startVal)return[];
+  const entries=loadEntries();
+  const arr=[];
+  for(let i=0;i<14;i++){
+    const iso=addDaysKey(startVal,i);
+    if(entries[iso])arr.push(entries[iso]);
+  }
+  return arr;
+}
 function renderSummary(){const s=loadSettings();if(periodStart.value){checkPeriodLabel.textContent=formatAU(periodStart.value)+' – '+formatAU(periodEndFromStart(periodStart.value));}normalRate.value=s.normalRate;otRate.value=s.otRate;const list=periodEntries();const normal=list.reduce((a,e)=>a+(e.calc.normal||0),0),ot=list.reduce((a,e)=>a+(e.calc.ot||0),0),paid=list.reduce((a,e)=>a+(e.calc.paid||0),0);sumNormal.textContent=normal.toFixed(2);sumOT.textContent=ot.toFixed(2);sumPaid.textContent=paid.toFixed(2);sumPay.textContent="$"+(normal*s.normalRate+ot*s.otRate+paid*s.normalRate).toFixed(2)}
 function allEntriesThrough(endISO){
   const entries=loadEntries();
@@ -403,21 +487,20 @@ function allEntriesThrough(endISO){
 }
 function weekdayOrdinaryHoursBetween(startISO,endISO){
   const s=loadSettings();
-  if(!startISO||!endISO) return {eligible:0,unpaid:0,totalScheduled:0};
-  const startD=new Date(startISO+'T00:00:00');
-  const endD=new Date(endISO+'T00:00:00');
-  if(endD<startD) return {eligible:0,unpaid:0,totalScheduled:0};
+  if(!startISO||!endISO||endISO<startISO) return {eligible:0,unpaid:0,totalScheduled:0};
   const entries=loadEntries();
   const daily=s.ordinaryHoursWeek/5;
   let eligible=0,unpaid=0,totalScheduled=0;
-  for(let d=new Date(startD);d<=endD;d.setDate(d.getDate()+1)){
+  for(let iso=startISO;iso<=endISO;iso=addDaysKey(iso,1)){
+    const d=dateFromKey(iso);
     const dow=d.getDay();
     if(dow===0||dow===6) continue;
     totalScheduled+=daily;
-    const iso=isoDateLocal(d);
     const e=entries[iso];
     let unpaidH=0;
-    if(e&&e.status==='Unpaid Leave') unpaidH=Math.min(daily,Math.max(0,parseFloat(e.leaveHours??e.calc?.unpaidLeave??daily)||0));
+    if(e&&e.status==='Unpaid Leave'){
+      unpaidH=Math.min(daily,Math.max(0,parseFloat(e.leaveHours??e.calc?.unpaidLeave??daily)||0));
+    }
     unpaid+=unpaidH;
     eligible+=Math.max(0,daily-unpaidH);
   }
@@ -455,7 +538,7 @@ function saveSettings(){
   s.annualWeeks=parseFloat(annualWeeks.value||4);
   s.normalRate=parseFloat(normalRate.value||DEFAULTS.normalRate);
   s.otRate=parseFloat(otRate.value||DEFAULTS.otRate);
-  localStorage.setItem('wha_settings',JSON.stringify(s));
+  safeSetItem('wha_settings',JSON.stringify(s));
   renderLeave();renderSummary();updateStorageStatus();
 }
 
@@ -469,7 +552,7 @@ function updateStorageStatus(){
   storageStatus.textContent=count+' 天紀錄・已自動儲存';
 }
 function exportBackup(){
-  const payload={app:'Work Hours AU',schemaVersion:6,pinExcluded:true,exportedAt:new Date().toISOString(),entries:loadEntries(),settings:loadSettings()};
+  const payload={app:'Work Hours AU',schemaVersion:7.1,pinExcluded:true,exportedAt:new Date().toISOString(),entries:loadEntries(),settings:loadSettings()};
   const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
   const url=URL.createObjectURL(blob);
   const a=document.createElement('a');
@@ -502,9 +585,69 @@ async function importBackup(input){
 function showPage(id,btn){document.querySelectorAll('.page').forEach(p=>p.classList.add('hidden'));document.getElementById(id).classList.remove('hidden');document.querySelectorAll('nav button').forEach(b=>b.classList.remove('active'));btn.classList.add('active');if(id==="timesheet")renderTimesheet();if(id==="leave")renderLeave();if(id==="check")renderSummary()}
 
 
+
+function legacyDateShiftSignature(entries){
+  const start=(loadSettings().employmentStart||'2026-07-13');
+  // Old seed generated the first Monday (13/07) under the previous day (12/07).
+  if(entries[addDaysKey(start,-1)]?.estimated) return true;
+  // Also detect estimated weekday records stored on Sundays from the old UTC conversion.
+  return Object.entries(entries).some(([k,e])=>e?.estimated && dateFromKey(k).getDay()===0);
+}
+function migrateLegacyTimezoneDates(){
+  const doneKey='wha_v7_local_date_migration_done';
+  if(safeGetItem(doneKey)) return;
+  const oldEntries=loadEntries();
+
+  if(!legacyDateShiftSignature(oldEntries)){
+    safeSetItem(doneKey,'no-shift-needed');
+    return;
+  }
+
+  // Keep an untouched local recovery copy before any migration.
+  safeSetItem('wha_v7_pre_date_fix_entries',JSON.stringify(oldEntries));
+
+  const fixed={};
+  Object.entries(oldEntries).forEach(([key,e])=>{
+    const newKey=addDaysKey(key,1);
+    fixed[newKey]={...e,date:newKey};
+  });
+
+  // Confirmed historical fact: 17/07/2026 was a full-day Unpaid Leave.
+  if(fixed['2026-07-17']){
+    fixed['2026-07-17']={
+      ...fixed['2026-07-17'],
+      date:'2026-07-17',
+      status:'Unpaid Leave',
+      leaveHours:7.6,
+      start:fixed['2026-07-17'].start||'08:00',
+      end:fixed['2026-07-17'].end||'16:30',
+      calc:calculate('Unpaid Leave',fixed['2026-07-17'].start||'08:00',fixed['2026-07-17'].end||'16:30',7.6),
+      estimated:false
+    };
+  }
+
+  // If a duplicate 17/07 edit was previously saved as a real 17/07 record, a full shift
+  // would place that duplicate on Saturday 18/07. Remove only this known duplicate pattern.
+  if(fixed['2026-07-18']?.status==='Unpaid Leave' && fixed['2026-07-18']?.leaveHours==7.6){
+    delete fixed['2026-07-18'];
+  }
+
+  saveEntries(fixed);
+  safeSetItem(doneKey,'shifted-plus-one-day');
+}
+function restorePreV7DateBackup(){
+  const raw=safeGetItem('wha_v7_pre_date_fix_entries');
+  if(!raw){alert('沒有找到 v7 更新前的日期備份。');return}
+  if(!confirm('要把工時紀錄恢復成 v7 日期修復前的狀態嗎？目前紀錄會被取代。'))return;
+  saveEntries(JSON.parse(raw));
+  safeRemoveItem('wha_v7_local_date_migration_done');
+  alert('已恢復舊日期資料。重新整理後 v7 會再次偵測日期格式。');
+  location.reload();
+}
+
 function repairV4SafariStatusBug(){
   const migrationKey='wha_v5_status_repair_done';
-  if(localStorage.getItem(migrationKey)) return;
+  if(safeGetItem(migrationKey)) return;
   const all=loadEntries();
 
   // User explicitly confirmed 17/07/2026 was one full day of Unpaid Leave.
@@ -521,27 +664,28 @@ function repairV4SafariStatusBug(){
 
   // Do not guess any other malformed entries. Mark them for review in the UI.
   saveEntries(all);
-  localStorage.setItem(migrationKey,'1');
+  safeSetItem(migrationKey,'1');
 }
 
 function seedHistoricalIfEmpty(){
   const key='wha_seeded_v2';
-  if(localStorage.getItem(key)) return;
+  if(safeGetItem(key)) return;
   const all=loadEntries();
   const startD=new Date('2026-07-13T00:00:00');
   const endD=new Date('2026-07-26T00:00:00');
   for(let d=new Date(startD); d<=endD; d.setDate(d.getDate()+1)){
-    const iso=d.toISOString().slice(0,10);
+    const iso=localDateKey(d);
     const dow=d.getDay();
     if(dow>=1 && dow<=5 && !all[iso]){
       all[iso]={date:iso,status:'Work',start:'08:00',end:'16:30',leaveHours:7.6,calc:calculate('Work','08:00','16:30',7.6),estimated:true};
     }
   }
   saveEntries(all);
-  localStorage.setItem(key,'1');
+  safeSetItem(key,'1');
 }
 
 initializePinLock();
+migrateLegacyTimezoneDates();
 seedHistoricalIfEmpty();
 repairV4SafariStatusBug();
 date.value=todayISO();leaveAsOf.value=todayISO();periodStart.value=getPeriodStartForDate(todayISO());['workStatus','start','end','leaveHours'].forEach(id=>document.getElementById(id).addEventListener('change',updatePreview));document.getElementById('leaveAsOf').addEventListener('change',renderLeave);document.getElementById('employmentStart').addEventListener('change',renderLeave);document.getElementById('ordinaryHoursWeek').addEventListener('change',renderLeave);document.getElementById('annualWeeks').addEventListener('change',renderLeave);updateStatusUI();updatePreview();renderTimesheet();renderSummary();renderLeave();updateStorageStatus();
