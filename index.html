@@ -15,7 +15,7 @@
 .app{max-width:760px;margin:0 auto;padding:env(safe-area-inset-top) 16px calc(92px + env(safe-area-inset-bottom))}
 header{padding:20px 4px 10px;display:flex;justify-content:space-between;align-items:flex-end;gap:12px}.brand h1{margin:0;font-size:28px}.brand p{margin:4px 0 0;color:var(--muted);font-size:14px}.pill{background:var(--peach);padding:8px 12px;border-radius:999px;font-size:12px;font-weight:700}
 .card{background:rgba(255,255,255,.84);backdrop-filter:blur(12px);border:1px solid rgba(234,223,203,.9);border-radius:var(--radius);box-shadow:var(--shadow);padding:18px;margin:12px 0}.section-title{font-size:17px;font-weight:800;margin:0 0 14px}
-.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}label{font-size:12px;color:var(--muted);display:block;margin-bottom:6px;font-weight:700}input,select{width:100%;border:1px solid var(--line);background:var(--cream);border-radius:14px;padding:13px 12px;font-size:16px;color:var(--ink)}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.grid>div{min-width:0}label{font-size:12px;color:var(--muted);display:block;margin-bottom:6px;font-weight:700}input,select{display:block;width:100%;min-width:0;max-width:100%;box-sizing:border-box;border:1px solid var(--line);background:var(--cream);border-radius:14px;padding:13px 12px;font-size:16px;color:var(--ink);overflow:hidden}input[type=date],input[type=time]{min-width:0;max-width:100%;width:100%;padding-left:12px;padding-right:12px}
 .btn{border:0;border-radius:15px;padding:13px 16px;font-size:15px;font-weight:800}.btn-primary{background:var(--peach)}.btn-secondary{background:var(--goose)}.btn-full{width:100%}
 .stats{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}.stat{border-radius:18px;padding:14px;background:var(--goose-soft);border:1px solid var(--line)}.stat.peach{background:var(--peach-soft)}.stat .k{font-size:12px;color:var(--muted);font-weight:700}.stat .v{font-size:24px;font-weight:850;margin-top:4px}
 .note{background:#FFF3E9;border-radius:16px;padding:12px 14px;font-size:13px;line-height:1.45;color:#6F5B4C;border:1px solid #F0D8C8}.divider{height:1px;background:var(--line);margin:14px 0}.rows{display:flex;flex-direction:column;gap:9px}.dayrow{display:grid;grid-template-columns:76px 1fr auto;gap:10px;align-items:center;padding:11px;border-radius:16px;background:#fff;border:1px solid var(--line)}.date{font-weight:800;font-size:13px}.meta{font-size:12px;color:var(--muted)}.hours{font-weight:800;text-align:right}.hours small{display:block;color:var(--muted);font-weight:600}.hidden{display:none}
@@ -75,7 +75,7 @@ body.pin-locked .app,body.pin-locked nav{visibility:hidden}
 <div class="brand"><h1>Work Hours AU</h1><p>工時・加班・Paid Rest・Leave</p></div>
 <div class="pin-header-actions">
   <button class="pin-lock-btn" onclick="lockApp()">🔒 鎖定</button>
-  <div class="pill">v7.1</div>
+  <div class="pill">v7.2</div>
 </div>
 </header>
 
@@ -96,7 +96,7 @@ body.pin-locked .app,body.pin-locked nav{visibility:hidden}
 <div class="stat peach"><div class="k">Paid Rest</div><div class="v" id="paidRestOut">0.00</div></div>
 <div class="stat"><div class="k">Unpaid Rest</div><div class="v" id="unpaidRestOut">0.00</div></div>
 </div>
-<div class="note" style="margin-top:12px">Paid Rest：Work 且下班晚於 18:00 → 自動計入 <strong>0.34 hr</strong>；同時記錄 <strong>0.17 hr</strong> Unpaid Rest。</div>
+<div class="note" style="margin-top:12px"><strong>OT 規則：</strong>下班 ≤ 16:00 → 0 OT；16:00–16:30 按比例計算，使 16:30 = 0.40 OT（每分鐘約 0.01333）；16:30 後按一般分鐘換算。<br><br>Paid Rest：Work 且下班晚於 18:00 → 自動計入 <strong>0.34 hr</strong>；同時記錄 <strong>0.17 hr</strong> Unpaid Rest。</div>
 <button class="btn btn-primary btn-full" style="margin-top:14px" onclick="saveEntry()">儲存這一天</button>
 </div>
 </section>
@@ -389,11 +389,43 @@ function calculate(status,start,end,leaveH){
   if(status==="Annual Leave") return {normal:0,ot:0,paid:0,unpaid:0,sick:0,annual:lh,unpaidLeave:0};
   if(status==="Unpaid Leave") return {normal:0,ot:0,paid:0,unpaid:0,sick:0,annual:0,unpaidLeave:lh};
   if(status!=="Work") return {normal:0,ot:0,paid:0,unpaid:0,sick:0,annual:0,unpaidLeave:0};
+
   const endH=parseTime(end);
-  const extraRaw=Math.max(0,(endH??16.5)-16.5);
-  const longShift=(endH??0)>18;
-  const extended=Math.max(0,extraRaw-(longShift?0.5:0));
-  return {normal:s.normalHours,ot:round2(s.fixedOT+extended),paid:longShift?s.paidRest:0,unpaid:longShift?s.unpaidRest:0,sick:0,annual:0,unpaidLeave:0};
+  if(endH===null) return {normal:s.normalHours,ot:0,paid:0,unpaid:0,sick:0,annual:0,unpaidLeave:0};
+
+  // Company-specific OT rule:
+  // <= 16:00 = 0 OT.
+  // 16:00–16:30 is prorated so the full 30 clock-minutes equals 0.40 OT.
+  // Therefore each clock-minute in this first block = 0.40 / 30 = 0.013333333 OT.
+  // After 16:30, time is added as standard decimal hours (1 minute = 1/60 hour).
+  // If end time is after 18:00, subtract the 30-minute rest from extended OT,
+  // while separately adding Paid Rest 0.34 and Unpaid Rest 0.17.
+  let ot=0;
+
+  if(endH>16){
+    const firstBlockMinutes=Math.min(30,Math.max(0,(endH-16)*60));
+    ot += firstBlockMinutes*(0.4/30);
+
+    if(endH>16.5){
+      const after1630=endH-16.5;
+      ot += after1630;
+    }
+
+    if(endH>18){
+      ot -= 0.5;
+    }
+  }
+
+  ot=Math.max(0,ot);
+  const longShift=endH>18;
+
+  return {
+    normal:s.normalHours,
+    ot:Math.round((ot+Number.EPSILON)*10000)/10000,
+    paid:longShift?s.paidRest:0,
+    unpaid:longShift?s.unpaidRest:0,
+    sick:0,annual:0,unpaidLeave:0
+  };
 }
 function updatePreview(){updateStatusUI();const r=calculate(document.getElementById('workStatus').value,start.value,end.value,leaveHours.value);normalOut.textContent=r.normal.toFixed(2);otOut.textContent=r.ot.toFixed(2);paidRestOut.textContent=r.paid.toFixed(2);unpaidRestOut.textContent=r.unpaid.toFixed(2)}
 function saveEntry(){
@@ -454,7 +486,7 @@ function renderTimesheet(){
     const label=d.toLocaleDateString('en-AU',{weekday:'short',day:'2-digit',month:'2-digit'});
     const div=document.createElement('div');
     div.className='dayrow';
-    div.innerHTML=`<div><div class="date">${label}</div><div class="meta">${e?((e.status||"⚠️ 請重新選擇狀態")+(e.estimated?" · 預填":"")):"No entry"}</div></div><div class="meta">${e&&e.start?`${e.start}–${e.end}`:""}</div><div class="hours">${e?e.calc.ot.toFixed(2):"—"}<small>${e?`Paid ${e.calc.paid.toFixed(2)}`:""}</small></div>`;
+    div.innerHTML=`<div><div class="date">${label}</div><div class="meta">${e?((e.status||"⚠️ 請重新選擇狀態")+(e.estimated?" · 預填":"")):"No entry"}</div></div><div class="meta">${e&&e.start?`${e.start}–${e.end}`:""}</div><div class="hours">${e?(Math.round(e.calc.ot*10000)/10000).toFixed(e.calc.ot%0.01===0?2:4):"—"}<small>${e?`Paid ${e.calc.paid.toFixed(2)}`:""}</small></div>`;
     div.onclick=()=>{
       document.getElementById('date').value=iso;
       if(e){
@@ -552,7 +584,7 @@ function updateStorageStatus(){
   storageStatus.textContent=count+' 天紀錄・已自動儲存';
 }
 function exportBackup(){
-  const payload={app:'Work Hours AU',schemaVersion:7.1,pinExcluded:true,exportedAt:new Date().toISOString(),entries:loadEntries(),settings:loadSettings()};
+  const payload={app:'Work Hours AU',schemaVersion:7.2,pinExcluded:true,exportedAt:new Date().toISOString(),entries:loadEntries(),settings:loadSettings()};
   const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
   const url=URL.createObjectURL(blob);
   const a=document.createElement('a');
@@ -645,6 +677,22 @@ function restorePreV7DateBackup(){
   location.reload();
 }
 
+
+function recalculateExistingEntriesV72(){
+  const key='wha_v72_ot_recalc_done';
+  if(safeGetItem(key)) return;
+  const all=loadEntries();
+  Object.keys(all).forEach(k=>{
+    const e=all[k];
+    if(!e) return;
+    const leaveH=e.leaveHours??7.6;
+    e.calc=calculate(e.status||'',e.start||'',e.end||'',leaveH);
+    all[k]=e;
+  });
+  saveEntries(all);
+  safeSetItem(key,'1');
+}
+
 function repairV4SafariStatusBug(){
   const migrationKey='wha_v5_status_repair_done';
   if(safeGetItem(migrationKey)) return;
@@ -688,6 +736,7 @@ initializePinLock();
 migrateLegacyTimezoneDates();
 seedHistoricalIfEmpty();
 repairV4SafariStatusBug();
+recalculateExistingEntriesV72();
 date.value=todayISO();leaveAsOf.value=todayISO();periodStart.value=getPeriodStartForDate(todayISO());['workStatus','start','end','leaveHours'].forEach(id=>document.getElementById(id).addEventListener('change',updatePreview));document.getElementById('leaveAsOf').addEventListener('change',renderLeave);document.getElementById('employmentStart').addEventListener('change',renderLeave);document.getElementById('ordinaryHoursWeek').addEventListener('change',renderLeave);document.getElementById('annualWeeks').addEventListener('change',renderLeave);updateStatusUI();updatePreview();renderTimesheet();renderSummary();renderLeave();updateStorageStatus();
 if('serviceWorker' in navigator){window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}))}
 </script>
