@@ -7,6 +7,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Work Hours AU">
+<link rel="manifest" href="manifest.json">
 
 <title>Work Hours AU</title>
 <style>
@@ -75,7 +76,7 @@ body.pin-locked .app,body.pin-locked nav{visibility:hidden}
 <div class="brand"><h1>Work Hours AU</h1><p>工時・加班・Paid Rest・Leave</p></div>
 <div class="pin-header-actions">
   <button class="pin-lock-btn" onclick="lockApp()">🔒 鎖定</button>
-  <div class="pill">v7.3</div>
+  <div class="pill">v7.4</div>
 </div>
 </header>
 
@@ -87,7 +88,6 @@ body.pin-locked .app,body.pin-locked nav{visibility:hidden}
 <div><label>狀態</label><select id="workStatus"><option value="Work">Work</option><option value="Sick Leave">Sick Leave</option><option value="Annual Leave">Annual Leave</option><option value="Public Holiday">Public Holiday</option><option value="Unpaid Leave">Unpaid Leave</option><option value="Off">Off</option><option value="" disabled>⚠️ 請重新選擇狀態</option></select></div>
 <div><label>上班</label><input id="start" type="time" value="08:00"></div>
 <div><label>下班</label><input id="end" type="time" value="16:30"></div>
-<div id="leaveHoursWrap" class="hidden"><label>Leave 時數</label><input id="leaveHours" type="number" value="7.6" min="0" step="0.1"></div>
 </div>
 <div class="divider"></div>
 <div class="stats">
@@ -96,7 +96,7 @@ body.pin-locked .app,body.pin-locked nav{visibility:hidden}
 <div class="stat peach"><div class="k">Paid Rest</div><div class="v" id="paidRestOut">0.00</div></div>
 <div class="stat"><div class="k">Unpaid Rest</div><div class="v" id="unpaidRestOut">0.00</div></div>
 </div>
-<div class="note" style="margin-top:12px"><strong>OT 規則：</strong>下班 ≤ 16:00 → 0 OT；16:00–16:30 按比例計算，使 16:30 = 0.40 OT（每分鐘約 0.01333）；16:30 後按一般分鐘換算。<br><br>Paid Rest：Work 且下班晚於 18:00 → 自動計入 <strong>0.34 hr</strong>；同時記錄 <strong>0.17 hr</strong> Unpaid Rest。<br><br><strong>Leave Hours：</strong>預設 7.6 hr，但可依 payroll 實際時數輸入，例如 7.70 hr。</div>
+<div class="note" style="margin-top:12px"><strong>OT 規則：</strong>下班 ≤ 16:00 → 0 OT；16:00–16:30 按比例計算，使 16:30 = 0.40 OT（每分鐘約 0.01333）；16:30 後按一般分鐘換算。<br><br>Paid Rest：Work 且下班晚於 18:00 → 自動計入 <strong>0.34 hr</strong>；同時記錄 <strong>0.17 hr</strong> Unpaid Rest。</div>
 <button class="btn btn-primary btn-full" style="margin-top:14px" onclick="saveEntry()">儲存這一天</button>
 </div>
 </section>
@@ -163,6 +163,7 @@ body.pin-locked .app,body.pin-locked nav{visibility:hidden}
 <div class="note" style="margin-top:12px;background:#FFF0EA">
   <strong>v7 日期修復：</strong>已改用 iPhone 本地日曆日期，不再用 UTC 轉換。若舊版資料被整體錯移一天，v7 會在第一次開啟時自動修復，並保留一份修復前的本機副本。
 </div>
+<div class="note" style="margin-top:10px;background:#FFF7D6"><strong>v7.4 Leave 核對：</strong>每日 leave 不再手動輸入 payroll 時數；App 以 7.6 hr/full day 獨立計算，payslip leave hours 改到 Check 頁輸入比對。</div>
 <button class="btn btn-secondary btn-full" style="margin-top:10px" onclick="restorePreV7DateBackup()">復原 v7 日期修復前資料</button>
 </div>
 </section>
@@ -201,6 +202,19 @@ body.pin-locked .app,body.pin-locked nav{visibility:hidden}
 </div>
 
 <div class="divider"></div>
+<h3 style="font-size:15px;margin:0 0 12px">Leave Cross-check</h3>
+<div class="note" style="margin-bottom:12px">App 會依每日紀錄自行計算請假時數；整天 Annual / Sick / Unpaid Leave 預設按 <strong>7.6 hr</strong>。這裡輸入 payslip 上的總請假時數，用來檢查公司 payroll 是否一致。</div>
+<div class="grid">
+  <div><label>Leave type</label><select id="payslipLeaveType"><option value="">No leave / 不核對</option><option value="Annual Leave">Annual Leave</option><option value="Sick Leave">Sick Leave</option><option value="Unpaid Leave">Unpaid Leave</option></select></div>
+  <div><label>Payslip total leave hours</label><input id="actualLeaveHours" type="number" step="0.01" min="0" inputmode="decimal" placeholder="例如 7.70"></div>
+</div>
+<div class="stats" style="margin-top:10px">
+  <div class="stat"><div class="k">APP EXPECTED LEAVE HRS</div><div class="v" id="appLeaveHoursOut">—</div></div>
+  <div class="stat peach"><div class="k">PAYSLIP LEAVE HRS</div><div class="v" id="payslipLeaveHoursOut">—</div></div>
+</div>
+<div class="stat" style="margin-top:10px"><div class="k">LEAVE HRS DIFF <span style="font-weight:500">(App − Payslip)</span></div><div class="v" id="diffLeaveHours">—</div></div>
+
+<div class="divider"></div>
 <h3 style="font-size:15px;margin:0 0 12px">Difference <span style="font-size:12px;color:var(--muted);font-weight:600">(App − Payslip)</span></h3>
 <div class="stats">
   <div class="stat"><div class="k">NORMAL HRS</div><div class="v" id="diffNormalHrs">—</div></div>
@@ -235,7 +249,7 @@ const pinOverlay=$('pinOverlay'), pinSetupView=$('pinSetupView'), newPin=$('newP
       confirmPin=$('confirmPin'), setupPinError=$('setupPinError'),
       pinUnlockView=$('pinUnlockView'), unlockPin=$('unlockPin'),
       unlockPinError=$('unlockPinError'), date=$('date'), start=$('start'), end=$('end'),
-      leaveHours=$('leaveHours'), normalOut=$('normalOut'), otOut=$('otOut'),
+      normalOut=$('normalOut'), otOut=$('otOut'),
       paidRestOut=$('paidRestOut'), unpaidRestOut=$('unpaidRestOut'),
       periodLabel=$('periodLabel'), periodStart=$('periodStart'), rows=$('rows'),
       employmentStart=$('employmentStart'), leaveAsOf=$('leaveAsOf'),
@@ -250,7 +264,9 @@ const pinOverlay=$('pinOverlay'), pinSetupView=$('pinSetupView'), newPin=$('newP
       actualNormalHrs=$('actualNormalHrs'), actualOTHrs=$('actualOTHrs'), actualPaidRest=$('actualPaidRest'),
       actualGrossPay=$('actualGrossPay'), actualTax=$('actualTax'), actualDeductions=$('actualDeductions'), actualNetPay=$('actualNetPay'),
       diffNormalHrs=$('diffNormalHrs'), diffOTHrs=$('diffOTHrs'), diffPaidRest=$('diffPaidRest'), diffGrossPay=$('diffGrossPay'),
-      actualTaxOut=$('actualTaxOut'), actualNetPayOut=$('actualNetPayOut'), netCheckDiff=$('netCheckDiff'), payslipMatchNote=$('payslipMatchNote');
+      actualTaxOut=$('actualTaxOut'), actualNetPayOut=$('actualNetPayOut'), netCheckDiff=$('netCheckDiff'), payslipMatchNote=$('payslipMatchNote'),
+      payslipLeaveType=$('payslipLeaveType'), actualLeaveHours=$('actualLeaveHours'),
+      appLeaveHoursOut=$('appLeaveHoursOut'), payslipLeaveHoursOut=$('payslipLeaveHoursOut'), diffLeaveHours=$('diffLeaveHours');
 
 const memoryStorage={};
 function safeGetItem(k){
@@ -431,7 +447,7 @@ function saveEntries(v){safeSetItem('wha_entries',JSON.stringify(v))}
 function loadSettings(){return {...DEFAULTS,...JSON.parse(safeGetItem('wha_settings')||'{}')}}
 function calculate(status,start,end,leaveH){
   const s=loadSettings();
-  const lh=Math.max(0,parseFloat(leaveH??s.normalHours)||0);
+  const lh=s.normalHours;
   if(status==="Sick Leave") return {normal:0,ot:0,paid:0,unpaid:0,sick:lh,annual:0,unpaidLeave:0};
   if(status==="Annual Leave") return {normal:0,ot:0,paid:0,unpaid:0,sick:0,annual:lh,unpaidLeave:0};
   if(status==="Unpaid Leave") return {normal:0,ot:0,paid:0,unpaid:0,sick:0,annual:0,unpaidLeave:lh};
@@ -474,19 +490,22 @@ function calculate(status,start,end,leaveH){
     sick:0,annual:0,unpaidLeave:0
   };
 }
-function updatePreview(){updateStatusUI();const r=calculate(document.getElementById('workStatus').value,start.value,end.value,leaveHours.value);normalOut.textContent=r.normal.toFixed(2);otOut.textContent=r.ot.toFixed(2);paidRestOut.textContent=r.paid.toFixed(2);unpaidRestOut.textContent=r.unpaid.toFixed(2)}
+function safeDailyLeaveHours(){return loadSettings().normalHours||7.6}
+function updatePreview(){const r=calculate(document.getElementById('workStatus').value,start.value,end.value,safeDailyLeaveHours());normalOut.textContent=r.normal.toFixed(2);otOut.textContent=r.ot.toFixed(2);paidRestOut.textContent=r.paid.toFixed(2);unpaidRestOut.textContent=r.unpaid.toFixed(2)}
 function saveEntry(){
   const d=document.getElementById('date').value;
   const ws=document.getElementById('workStatus').value;
   if(!d){alert("請先選日期");return}
   if(!ws){alert("請重新選擇這一天的狀態");return}
+  const isLeave=['Sick Leave','Annual Leave','Unpaid Leave'].includes(ws);
+  const formulaLeaveHours=isLeave?safeDailyLeaveHours():0;
   const entry={
     date:d,
     status:ws,
     start:document.getElementById('start').value,
     end:document.getElementById('end').value,
-    leaveHours:parseFloat(document.getElementById('leaveHours').value||7.6),
-    calc:calculate(ws,document.getElementById('start').value,document.getElementById('end').value,document.getElementById('leaveHours').value)
+    leaveHours:formulaLeaveHours,
+    calc:calculate(ws,document.getElementById('start').value,document.getElementById('end').value,formulaLeaveHours)
   };
   const all=loadEntries();all[d]=entry;saveEntries(all);
   renderTimesheet();renderSummary();renderLeave();updateStorageStatus();
@@ -540,7 +559,6 @@ function renderTimesheet(){
         document.getElementById('workStatus').value=e.status||'';
         document.getElementById('start').value=e.start||'08:00';
         document.getElementById('end').value=e.end||'16:30';
-        document.getElementById('leaveHours').value=e.leaveHours??7.6;
       }
       showPage('today',document.querySelectorAll('nav button')[0]);
       updatePreview();
@@ -577,16 +595,55 @@ function populatePayslipActual(){
   actualTax.value=a.tax??'';
   actualDeductions.value=a.deductions??'0';
   actualNetPay.value=a.netPay??'';
+  payslipLeaveType.value=a.leaveType??'';
+  const byType=(a.leaveHoursByType&&typeof a.leaveHoursByType==='object')?a.leaveHoursByType:{};
+  actualLeaveHours.value=payslipLeaveType.value?(byType[payslipLeaveType.value]??''):'';
 }
 function savePayslipActual(){
   if(!periodStart.value)return;
   const all=loadPayslipActuals();
+  const prev=all[periodStart.value]||{};
+  const leaveHoursByType=(prev.leaveHoursByType&&typeof prev.leaveHoursByType==='object')?{...prev.leaveHoursByType}:{};
+  const leaveType=payslipLeaveType.value||'';
+  if(leaveType) leaveHoursByType[leaveType]=actualLeaveHours.value;
   all[periodStart.value]={
+    ...prev,
     normalHrs:actualNormalHrs.value,otHrs:actualOTHrs.value,paidRest:actualPaidRest.value,
-    grossPay:actualGrossPay.value,tax:actualTax.value,deductions:actualDeductions.value,netPay:actualNetPay.value
+    grossPay:actualGrossPay.value,tax:actualTax.value,deductions:actualDeductions.value,netPay:actualNetPay.value,
+    leaveType,leaveHoursByType
   };
   savePayslipActuals(all);
 }
+
+function appExpectedLeaveHours(type){
+  if(!type) return NaN;
+  const list=periodEntries();
+  if(type==='Annual Leave') return list.reduce((a,e)=>a+(e.calc?.annual||0),0);
+  if(type==='Sick Leave') return list.reduce((a,e)=>a+(e.calc?.sick||0),0);
+  if(type==='Unpaid Leave') return list.reduce((a,e)=>a+(e.calc?.unpaidLeave||0),0);
+  return NaN;
+}
+function handlePayslipLeaveTypeChange(){
+  if(!periodStart.value)return;
+  const all=loadPayslipActuals();
+  const a=all[periodStart.value]||{};
+  a.leaveType=payslipLeaveType.value||'';
+  all[periodStart.value]=a;
+  savePayslipActuals(all);
+  const byType=(a.leaveHoursByType&&typeof a.leaveHoursByType==='object')?a.leaveHoursByType:{};
+  actualLeaveHours.value=payslipLeaveType.value?(byType[payslipLeaveType.value]??''):'';
+  renderSummary();
+}
+function saveCurrentLeaveHours(){
+  if(!periodStart.value||!payslipLeaveType.value)return;
+  const all=loadPayslipActuals();
+  const a=all[periodStart.value]||{};
+  const byType=(a.leaveHoursByType&&typeof a.leaveHoursByType==='object')?{...a.leaveHoursByType}:{};
+  byType[payslipLeaveType.value]=actualLeaveHours.value;
+  a.leaveType=payslipLeaveType.value;a.leaveHoursByType=byType;all[periodStart.value]=a;
+  savePayslipActuals(all);
+}
+
 function fmtDiff(v,money=false){
   if(!Number.isFinite(v))return '—';
   const sign=v>0?'+':'';
@@ -595,6 +652,12 @@ function fmtDiff(v,money=false){
 function renderPayslipComparison(appNormal,appOT,appPaid,appGross){
   const n=parseFloat(actualNormalHrs.value), o=parseFloat(actualOTHrs.value), p=parseFloat(actualPaidRest.value),
         g=parseFloat(actualGrossPay.value), tax=parseFloat(actualTax.value), ded=parseFloat(actualDeductions.value||0), net=parseFloat(actualNetPay.value);
+  const leaveType=payslipLeaveType.value||'';
+  const appLeave=appExpectedLeaveHours(leaveType);
+  const payslipLeave=parseFloat(actualLeaveHours.value);
+  appLeaveHoursOut.textContent=Number.isFinite(appLeave)?appLeave.toFixed(2):'—';
+  payslipLeaveHoursOut.textContent=Number.isFinite(payslipLeave)?payslipLeave.toFixed(2):'—';
+  diffLeaveHours.textContent=(Number.isFinite(appLeave)&&Number.isFinite(payslipLeave))?fmtDiff(appLeave-payslipLeave):'—';
   diffNormalHrs.textContent=Number.isFinite(n)?fmtDiff(appNormal-n):'—';
   diffOTHrs.textContent=Number.isFinite(o)?fmtDiff(appOT-o):'—';
   diffPaidRest.textContent=Number.isFinite(p)?fmtDiff(appPaid-p):'—';
@@ -609,12 +672,13 @@ function renderPayslipComparison(appNormal,appOT,appPaid,appGross){
   if(Number.isFinite(p))checks.push(Math.abs(appPaid-p)<=0.011);
   if(Number.isFinite(g))checks.push(Math.abs(appGross-g)<=0.011);
   if(Number.isFinite(netDiff))checks.push(Math.abs(netDiff)<=0.011);
+  if(leaveType&&Number.isFinite(appLeave)&&Number.isFinite(payslipLeave))checks.push(Math.abs(appLeave-payslipLeave)<=0.011);
   if(!checks.length){
     payslipMatchNote.textContent='輸入實際 payslip 數字後，按「更新並核對」。';
   }else if(checks.every(Boolean)){
     payslipMatchNote.innerHTML='<strong>✅ 與 Payslip 相符</strong>：目前輸入的核對項目都一致。';
   }else{
-    payslipMatchNote.innerHTML='<strong>⚠️ 有差異</strong>：請檢查該 Pay Period 的每日工時、Unpaid Leave、OT 或 Paid Rest。';
+    payslipMatchNote.innerHTML='<strong>⚠️ 有差異</strong>：請檢查該 Pay Period 的每日工時、Leave、OT、Paid Rest 或 payslip 輸入值。';
   }
 }
 
@@ -648,7 +712,7 @@ function weekdayOrdinaryHoursBetween(startISO,endISO){
     totalScheduled+=daily;
     const e=entries[iso];
     if(e&&e.status==='Unpaid Leave'){
-      unpaid+=Math.max(0,parseFloat(e.leaveHours??e.calc?.unpaidLeave??daily)||0);
+      unpaid+=Math.max(0,parseFloat(e.calc?.unpaidLeave??daily)||0);
     }
   }
   return {eligible:Math.max(0,totalScheduled-unpaid),unpaid,totalScheduled};
@@ -689,17 +753,14 @@ function saveSettings(){
   renderLeave();renderSummary();updateStorageStatus();
 }
 
-function updateStatusUI(){
-  const isLeave=['Sick Leave','Annual Leave','Unpaid Leave'].includes(document.getElementById('workStatus').value);
-  leaveHoursWrap.classList.toggle('hidden',!isLeave);
-}
+function updateStatusUI(){return}
 function updateStorageStatus(){
   if(!document.getElementById('storageStatus')) return;
   const count=Object.keys(loadEntries()).length;
   storageStatus.textContent=count+' 天紀錄・已自動儲存';
 }
 function exportBackup(){
-  const payload={app:'Work Hours AU',schemaVersion:7.3,pinExcluded:true,exportedAt:new Date().toISOString(),entries:loadEntries(),settings:loadSettings(),payslips:loadPayslipActuals()};
+  const payload={app:'Work Hours AU',schemaVersion:7.4,pinExcluded:true,exportedAt:new Date().toISOString(),entries:loadEntries(),settings:loadSettings(),payslips:loadPayslipActuals()};
   const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
   const url=URL.createObjectURL(blob);
   const a=document.createElement('a');
@@ -784,13 +845,33 @@ function recalculateExistingEntriesV72(){
 }
 
 
+
+function normalizeLeaveEntriesV74(){
+  const key='wha_v74_leave_formula_normalized';
+  if(safeGetItem(key)) return;
+  const all=loadEntries();
+  safeSetItem('wha_v74_pre_leave_normalize_entries',JSON.stringify(all));
+  const h=safeDailyLeaveHours();
+  Object.keys(all).forEach(k=>{
+    const e=all[k]; if(!e) return;
+    if(['Annual Leave','Sick Leave','Unpaid Leave'].includes(e.status)){
+      e.leaveHours=h;
+      e.calc=calculate(e.status,e.start||'08:00',e.end||'16:00',h);
+      all[k]=e;
+    }
+  });
+  saveEntries(all);
+  safeSetItem(key,'1');
+}
+
 function recalculateExistingEntriesV73(){
   const key='wha_v73_recalc_done';
   if(safeGetItem(key))return;
   const all=loadEntries();
   Object.keys(all).forEach(k=>{
     const e=all[k];if(!e)return;
-    const h=e.leaveHours??7.6;
+    const h=['Annual Leave','Sick Leave','Unpaid Leave'].includes(e.status)?safeDailyLeaveHours():0;
+    e.leaveHours=h;
     e.calc=calculate(e.status||'',e.start||'',e.end||'',h);
   });
   saveEntries(all);safeSetItem(key,'1');
@@ -826,7 +907,8 @@ seedHistoricalIfEmpty();
 repairV4SafariStatusBug();
 recalculateExistingEntriesV72();
 recalculateExistingEntriesV73();
-date.value=todayISO();leaveAsOf.value=todayISO();periodStart.value=getPeriodStartForDate(todayISO());['workStatus','start','end','leaveHours'].forEach(id=>document.getElementById(id).addEventListener('change',updatePreview));document.getElementById('leaveAsOf').addEventListener('change',renderLeave);document.getElementById('employmentStart').addEventListener('change',renderLeave);document.getElementById('ordinaryHoursWeek').addEventListener('change',renderLeave);document.getElementById('annualWeeks').addEventListener('change',renderLeave);updateStatusUI();updatePreview();renderTimesheet();renderSummary();renderLeave();updateStorageStatus();
+normalizeLeaveEntriesV74();
+date.value=todayISO();leaveAsOf.value=todayISO();periodStart.value=getPeriodStartForDate(todayISO());['workStatus','start','end'].forEach(id=>document.getElementById(id).addEventListener('change',updatePreview));document.getElementById('leaveAsOf').addEventListener('change',renderLeave);document.getElementById('employmentStart').addEventListener('change',renderLeave);document.getElementById('ordinaryHoursWeek').addEventListener('change',renderLeave);document.getElementById('annualWeeks').addEventListener('change',renderLeave);payslipLeaveType.addEventListener('change',handlePayslipLeaveTypeChange);actualLeaveHours.addEventListener('change',()=>{saveCurrentLeaveHours();renderSummary();});updateStatusUI();updatePreview();renderTimesheet();renderSummary();renderLeave();updateStorageStatus();
 if('serviceWorker' in navigator){window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}))}
 </script>
 </body>
