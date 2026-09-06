@@ -7,6 +7,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Work Hours AU">
+<link rel="manifest" href="manifest.json">
 
 <title>Work Hours AU</title>
 <style>
@@ -21,11 +22,63 @@ header{padding:20px 4px 10px;display:flex;justify-content:space-between;align-it
 .note{background:#FFF3E9;border-radius:16px;padding:12px 14px;font-size:13px;line-height:1.45;color:#6F5B4C;border:1px solid #F0D8C8}.divider{height:1px;background:var(--line);margin:14px 0}.rows{display:flex;flex-direction:column;gap:9px}.dayrow{display:grid;grid-template-columns:76px 1fr auto;gap:10px;align-items:center;padding:11px;border-radius:16px;background:#fff;border:1px solid var(--line)}.date{font-weight:800;font-size:13px}.meta{font-size:12px;color:var(--muted)}.hours{font-weight:800;text-align:right}.hours small{display:block;color:var(--muted);font-weight:600}.hidden{display:none}
 nav{position:fixed;left:50%;transform:translateX(-50%);bottom:12px;width:min(720px,calc(100% - 24px));background:rgba(255,255,255,.92);backdrop-filter:blur(16px);border:1px solid var(--line);border-radius:22px;box-shadow:0 12px 34px rgba(80,60,40,.14);padding:7px;display:grid;grid-template-columns:repeat(4,1fr);z-index:5}nav button{border:0;background:transparent;border-radius:16px;padding:10px 4px;color:var(--muted);font-size:12px;font-weight:800}nav button.active{background:var(--goose);color:var(--ink)}
 @media(max-width:520px){.grid{grid-template-columns:1fr}.stats{grid-template-columns:1fr 1fr}}
+
+.pin-header-actions{display:flex;align-items:center;gap:8px}
+.pin-lock-btn{border:1px solid var(--line);background:rgba(255,255,255,.72);color:var(--ink);border-radius:999px;padding:8px 11px;font-size:12px;font-weight:800}
+.pin-overlay{position:fixed;inset:0;z-index:9999;background:linear-gradient(180deg,#FFF7D6 0%,#FFF9EE 48%,#FCE5DA 100%);display:flex;align-items:center;justify-content:center;padding:22px}
+.pin-overlay.hidden{display:none}
+.pin-box{width:min(420px,100%);background:rgba(255,255,255,.92);border:1px solid var(--line);border-radius:28px;box-shadow:0 18px 50px rgba(80,60,40,.16);padding:24px}
+.pin-logo{width:58px;height:58px;border-radius:20px;background:var(--goose);display:flex;align-items:center;justify-content:center;font-size:26px;margin-bottom:16px}
+.pin-box h2{margin:0;font-size:25px}
+.pin-box p{color:var(--muted);font-size:14px;line-height:1.5}
+.pin-input{font-size:24px!important;letter-spacing:8px;text-align:center;font-weight:850;padding-left:20px!important}
+.pin-error{min-height:20px;color:#A94F42;font-size:13px;font-weight:700;margin-top:9px}
+.pin-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.pin-link{border:0;background:transparent;color:#78695C;font-size:12px;font-weight:700;text-decoration:underline;padding:10px}
+body.pin-locked .app,body.pin-locked nav{visibility:hidden}
+
 </style>
 </head>
-<body>
+<body class="pin-locked">
+
+<div id="pinOverlay" class="pin-overlay">
+  <div class="pin-box">
+    <div class="pin-logo">🔐</div>
+
+    <div id="pinSetupView" class="hidden">
+      <h2>設定 App PIN</h2>
+      <p>第一次使用 v6，請設定 4–6 位數 PIN。之後開啟 Work Hours AU 時會先要求解鎖。</p>
+      <label>新 PIN</label>
+      <input id="newPin" class="pin-input" type="password" inputmode="numeric" maxlength="6" autocomplete="new-password" placeholder="••••">
+      <div style="height:10px"></div>
+      <label>再次輸入</label>
+      <input id="confirmPin" class="pin-input" type="password" inputmode="numeric" maxlength="6" autocomplete="new-password" placeholder="••••">
+      <div id="setupPinError" class="pin-error"></div>
+      <button class="btn btn-primary btn-full" onclick="setupPin()">設定 PIN</button>
+      <p style="font-size:12px;margin-bottom:0">PIN 不會上傳到 GitHub，也不會包含在備份檔中。</p>
+    </div>
+
+    <div id="pinUnlockView" class="hidden">
+      <h2>Work Hours AU</h2>
+      <p>請輸入 PIN 解鎖。</p>
+      <input id="unlockPin" class="pin-input" type="password" inputmode="numeric" maxlength="6" autocomplete="current-password" placeholder="••••">
+      <div id="unlockPinError" class="pin-error"></div>
+      <button class="btn btn-primary btn-full" onclick="unlockApp()">解鎖</button>
+      <div style="text-align:center;margin-top:8px">
+        <button class="pin-link" onclick="forgotPin()">忘記 PIN？</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="app">
-<header><div class="brand"><h1>Work Hours AU</h1><p>工時・加班・Paid Rest・Leave</p></div><div class="pill">v5</div></header>
+<header>
+<div class="brand"><h1>Work Hours AU</h1><p>工時・加班・Paid Rest・Leave</p></div>
+<div class="pin-header-actions">
+  <button class="pin-lock-btn" onclick="lockApp()">🔒 鎖定</button>
+  <div class="pill">v6</div>
+</div>
+</header>
 
 <section id="today" class="page">
 <div class="card">
@@ -104,12 +157,23 @@ nav{position:fixed;left:50%;transform:translateX(-50%);bottom:12px;width:min(720
 <div class="stat" style="margin-top:12px"><div class="k">本機資料</div><div class="v" id="storageStatus" style="font-size:18px">—</div></div>
 <div class="grid" style="margin-top:12px">
   <button class="btn btn-primary" onclick="exportBackup()">匯出備份</button>
-  <button class="btn btn-secondary" onclick="document.getElementById('backupFile').click()">匯入備份</button>
+  <button class="btn btn-secondary" onclick="openBackupPicker()">匯入備份</button>
 </div>
 <input id="backupFile" type="file" accept="application/json,.json" class="hidden" onchange="importBackup(this)">
 <p style="color:var(--muted);font-size:12px;margin-bottom:0">備份檔包含工時、Leave、Pay Period 與設定，不包含任何線上帳號資料。</p>
 </div>
 </section>
+
+
+<div class="card">
+<h2 class="section-title">App PIN</h2>
+<div class="note">PIN 只用來保護這台裝置上的 App。PIN 本身不會上傳 GitHub，也不會寫入匯出的 JSON 備份。</div>
+<div class="grid" style="margin-top:12px">
+  <button class="btn btn-primary" onclick="changePin()">變更 PIN</button>
+  <button class="btn btn-secondary" onclick="lockApp()">立即鎖定</button>
+</div>
+<p style="color:var(--muted);font-size:12px;margin-bottom:0">如果忘記 PIN，只能重設 App 本機資料；有備份的話可在重設後再匯入。</p>
+</div>
 
 <section id="check" class="page hidden"><div class="card"><h2 class="section-title">Payslip Check</h2><div class="note" style="margin-bottom:14px">目前核對期間：<strong id="checkPeriodLabel">—</strong></div><div class="stats"><div class="stat"><div class="k">NORMAL PAY</div><div class="v" id="sumNormal">0.00</div></div><div class="stat peach"><div class="k">TIME & HALF</div><div class="v" id="sumOT">0.00</div></div><div class="stat peach"><div class="k">PAID REST</div><div class="v" id="sumPaid">0.00</div></div><div class="stat"><div class="k">EST. TAXABLE</div><div class="v" id="sumPay">$0</div></div></div><div class="divider"></div><div class="grid"><div><label>Normal rate</label><input id="normalRate" type="number" value="26.87" step="0.001"></div><div><label>OT rate</label><input id="otRate" type="number" value="40.305" step="0.001"></div></div><button class="btn btn-primary btn-full" style="margin-top:14px" onclick="saveSettings();renderSummary()">更新薪資估算</button></div></section>
 </div>
@@ -117,6 +181,142 @@ nav{position:fixed;left:50%;transform:translateX(-50%);bottom:12px;width:min(720
 <nav><button class="active" onclick="showPage('today',this)">Today</button><button onclick="showPage('timesheet',this)">Timesheet</button><button onclick="showPage('leave',this)">Leave</button><button onclick="showPage('check',this)">Check</button></nav>
 
 <script>
+
+// ---------- PIN Lock ----------
+const PIN_STORAGE_KEY='wha_pin_v1';
+let suspendAutoLock=false;
+
+function bytesToB64(bytes){
+  let s=''; for(const b of bytes) s+=String.fromCharCode(b);
+  return btoa(s);
+}
+function b64ToBytes(s){
+  const raw=atob(s); return Uint8Array.from(raw,c=>c.charCodeAt(0));
+}
+async function derivePinHash(pin,saltB64){
+  const enc=new TextEncoder();
+  const key=await crypto.subtle.importKey('raw',enc.encode(pin),'PBKDF2',false,['deriveBits']);
+  const bits=await crypto.subtle.deriveBits(
+    {name:'PBKDF2',salt:b64ToBytes(saltB64),iterations:120000,hash:'SHA-256'},
+    key,256
+  );
+  return bytesToB64(new Uint8Array(bits));
+}
+function validPin(pin){ return /^[0-9]{4,6}$/.test(pin); }
+
+async function createPinConfig(pin){
+  const salt=new Uint8Array(16); crypto.getRandomValues(salt);
+  const saltB64=bytesToB64(salt);
+  const hash=await derivePinHash(pin,saltB64);
+  localStorage.setItem(PIN_STORAGE_KEY,JSON.stringify({v:1,salt:saltB64,hash}));
+}
+function loadPinConfig(){
+  try{return JSON.parse(localStorage.getItem(PIN_STORAGE_KEY)||'null')}catch(e){return null}
+}
+function showPinMode(mode){
+  document.body.classList.add('pin-locked');
+  pinOverlay.classList.remove('hidden');
+  pinSetupView.classList.toggle('hidden',mode!=='setup');
+  pinUnlockView.classList.toggle('hidden',mode!=='unlock');
+  setupPinError.textContent=''; unlockPinError.textContent='';
+  setTimeout(()=>{
+    if(mode==='setup') newPin.focus();
+    else unlockPin.focus();
+  },120);
+}
+function initializePinLock(){
+  const cfg=loadPinConfig();
+  showPinMode(cfg?'unlock':'setup');
+}
+async function setupPin(){
+  const p1=newPin.value.trim(), p2=confirmPin.value.trim();
+  if(!validPin(p1)){setupPinError.textContent='請設定 4–6 位數字 PIN。';return}
+  if(p1!==p2){setupPinError.textContent='兩次 PIN 不一致。';return}
+  setupPinError.textContent='設定中…';
+  try{
+    await createPinConfig(p1);
+    newPin.value='';confirmPin.value='';
+    unlockScreen();
+  }catch(e){
+    setupPinError.textContent='無法建立 PIN，請再試一次。';
+  }
+}
+async function unlockApp(){
+  const cfg=loadPinConfig();
+  if(!cfg){showPinMode('setup');return}
+  const pin=unlockPin.value.trim();
+  if(!validPin(pin)){unlockPinError.textContent='請輸入 4–6 位數 PIN。';return}
+  unlockPinError.textContent='驗證中…';
+  try{
+    const hash=await derivePinHash(pin,cfg.salt);
+    if(hash!==cfg.hash){
+      unlockPin.value='';
+      unlockPinError.textContent='PIN 不正確。';
+      return;
+    }
+    unlockPin.value='';
+    unlockScreen();
+  }catch(e){
+    unlockPinError.textContent='無法驗證 PIN，請再試一次。';
+  }
+}
+function unlockScreen(){
+  pinOverlay.classList.add('hidden');
+  document.body.classList.remove('pin-locked');
+}
+function lockApp(){
+  const cfg=loadPinConfig();
+  if(!cfg){showPinMode('setup');return}
+  unlockPin.value='';
+  showPinMode('unlock');
+}
+async function changePin(){
+  const cfg=loadPinConfig();
+  if(!cfg){showPinMode('setup');return}
+  const current=prompt('請輸入目前 PIN');
+  if(current===null)return;
+  if(!validPin(current)){alert('PIN 格式不正確');return}
+  const oldHash=await derivePinHash(current,cfg.salt);
+  if(oldHash!==cfg.hash){alert('目前 PIN 不正確');return}
+  const next=prompt('請輸入新的 4–6 位數 PIN');
+  if(next===null)return;
+  if(!validPin(next)){alert('新 PIN 必須是 4–6 位數字');return}
+  const confirmNext=prompt('請再次輸入新的 PIN');
+  if(confirmNext===null)return;
+  if(next!==confirmNext){alert('兩次新 PIN 不一致');return}
+  await createPinConfig(next);
+  alert('PIN 已更新');
+}
+function forgotPin(){
+  if(!confirm('忘記 PIN 無法直接繞過鎖定。要重設 App 嗎？這會刪除這台裝置上的所有工時、Leave、設定與 PIN。'))return;
+  if(!confirm('最後確認：本機資料會全部刪除。若你有 JSON 備份，可以之後再匯入。'))return;
+  localStorage.clear();
+  location.reload();
+}
+function openBackupPicker(){
+  suspendAutoLock=true;
+  document.getElementById('backupFile').click();
+  setTimeout(()=>{suspendAutoLock=false},120000);
+}
+
+// Lock whenever the PWA/app is sent to background.
+// File picker is exempt so backup import can work normally.
+document.addEventListener('visibilitychange',()=>{
+  if(document.visibilityState==='hidden'){
+    if(!suspendAutoLock && loadPinConfig()) lockApp();
+  }else{
+    suspendAutoLock=false;
+  }
+});
+
+// Enter key support
+document.addEventListener('keydown',(e)=>{
+  if(e.key!=='Enter' || pinOverlay.classList.contains('hidden')) return;
+  if(!pinSetupView.classList.contains('hidden')) setupPin();
+  else unlockApp();
+});
+
+
 const DEFAULTS={normalHours:7.6,fixedOT:0.4,paidRest:0.34,unpaidRest:0.17,ordinaryHoursWeek:38,annualWeeks:4,employmentStart:'2026-07-13',normalRate:26.87,otRate:40.305};
 function todayISO(){const d=new Date();d.setMinutes(d.getMinutes()-d.getTimezoneOffset());return d.toISOString().slice(0,10)}
 function parseTime(t){if(!t)return null;const [h,m]=t.split(':').map(Number);return h+m/60}
@@ -269,7 +469,7 @@ function updateStorageStatus(){
   storageStatus.textContent=count+' 天紀錄・已自動儲存';
 }
 function exportBackup(){
-  const payload={app:'Work Hours AU',schemaVersion:4,exportedAt:new Date().toISOString(),entries:loadEntries(),settings:loadSettings()};
+  const payload={app:'Work Hours AU',schemaVersion:6,pinExcluded:true,exportedAt:new Date().toISOString(),entries:loadEntries(),settings:loadSettings()};
   const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
   const url=URL.createObjectURL(blob);
   const a=document.createElement('a');
@@ -296,7 +496,7 @@ async function importBackup(input){
   }catch(err){
     alert('這個檔案不是有效的 Work Hours AU 備份。');
   }
-  input.value='';
+  input.value='';suspendAutoLock=false;
 }
 
 function showPage(id,btn){document.querySelectorAll('.page').forEach(p=>p.classList.add('hidden'));document.getElementById(id).classList.remove('hidden');document.querySelectorAll('nav button').forEach(b=>b.classList.remove('active'));btn.classList.add('active');if(id==="timesheet")renderTimesheet();if(id==="leave")renderLeave();if(id==="check")renderSummary()}
@@ -341,6 +541,7 @@ function seedHistoricalIfEmpty(){
   localStorage.setItem(key,'1');
 }
 
+initializePinLock();
 seedHistoricalIfEmpty();
 repairV4SafariStatusBug();
 date.value=todayISO();leaveAsOf.value=todayISO();periodStart.value=getPeriodStartForDate(todayISO());['workStatus','start','end','leaveHours'].forEach(id=>document.getElementById(id).addEventListener('change',updatePreview));document.getElementById('leaveAsOf').addEventListener('change',renderLeave);document.getElementById('employmentStart').addEventListener('change',renderLeave);document.getElementById('ordinaryHoursWeek').addEventListener('change',renderLeave);document.getElementById('annualWeeks').addEventListener('change',renderLeave);updateStatusUI();updatePreview();renderTimesheet();renderSummary();renderLeave();updateStorageStatus();
