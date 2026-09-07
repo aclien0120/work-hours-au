@@ -76,7 +76,7 @@ body.pin-locked .app,body.pin-locked nav{visibility:hidden}
 <div class="brand"><h1>Work Hours AU</h1><p>工時・加班・Paid Rest・Leave</p></div>
 <div class="pin-header-actions">
   <button class="pin-lock-btn" onclick="lockApp()">🔒 鎖定</button>
-  <div class="pill">v7.4</div>
+  <div class="pill">v7.5</div>
 </div>
 </header>
 
@@ -163,7 +163,7 @@ body.pin-locked .app,body.pin-locked nav{visibility:hidden}
 <div class="note" style="margin-top:12px;background:#FFF0EA">
   <strong>v7 日期修復：</strong>已改用 iPhone 本地日曆日期，不再用 UTC 轉換。若舊版資料被整體錯移一天，v7 會在第一次開啟時自動修復，並保留一份修復前的本機副本。
 </div>
-<div class="note" style="margin-top:10px;background:#FFF7D6"><strong>v7.4 Leave 核對：</strong>每日 leave 不再手動輸入 payroll 時數；App 以 7.6 hr/full day 獨立計算，payslip leave hours 改到 Check 頁輸入比對。</div>
+<div class="note" style="margin-top:10px;background:#FFF7D6"><strong>v7.5 薪資核對：</strong>每日 leave 不再手動輸入 payroll 時數；App 以 7.6 hr/full day 獨立計算，payslip leave hours 改到 Check 頁輸入比對。</div>
 <button class="btn btn-secondary btn-full" style="margin-top:10px" onclick="restorePreV7DateBackup()">復原 v7 日期修復前資料</button>
 </div>
 </section>
@@ -181,7 +181,7 @@ body.pin-locked .app,body.pin-locked nav{visibility:hidden}
 
 <section id="check" class="page hidden"><div class="card">
 <h2 class="section-title">Payslip Check</h2>
-<div class="note" style="margin-bottom:14px">目前核對期間：<strong id="checkPeriodLabel">—</strong></div>
+<div class="note" style="margin-bottom:14px">目前核對期間：<strong id="checkPeriodLabel">—</strong><br><span style="font-size:12px">v7.5 將 App vs Payslip 差異、Payslip 算術檢查、Estimated Net Difference 分開顯示。</span></div>
 <div class="stats">
   <div class="stat"><div class="k">APP NORMAL HRS</div><div class="v" id="sumNormal">0.00</div></div>
   <div class="stat peach"><div class="k">APP TIME & HALF</div><div class="v" id="sumOT">0.00</div></div>
@@ -226,7 +226,19 @@ body.pin-locked .app,body.pin-locked nav{visibility:hidden}
   <div class="stat peach"><div class="k">PAYSLIP TAX</div><div class="v" id="actualTaxOut">—</div></div>
   <div class="stat"><div class="k">PAYSLIP NET PAY</div><div class="v" id="actualNetPayOut">—</div></div>
 </div>
-<div class="stat" style="margin-top:10px"><div class="k">NET CHECK DIFF<br><span style="font-weight:500">Gross − Tax − Deductions − Net</span></div><div class="v" id="netCheckDiff">—</div></div>
+
+<div class="divider"></div>
+<h3 style="font-size:15px;margin:0 0 12px">Payslip Arithmetic Check</h3>
+<div class="note" style="margin-bottom:10px">這一項只檢查薪資單本身的算術：<strong>Gross − Tax − Deductions − Net Pay</strong>。結果為 $0.00 代表 payslip 內部數字互相對得上，<strong>不代表 App 與 Payslip 沒有差異</strong>。</div>
+<div class="stat"><div class="k">PAYSLIP ARITHMETIC CHECK</div><div class="v" id="payslipArithmeticDiff">—</div></div>
+
+<div class="divider"></div>
+<h3 style="font-size:15px;margin:0 0 12px">Estimated Net Difference</h3>
+<div class="note" style="margin-bottom:10px">用 <strong>App Gross Pay − Payslip Tax − Payslip Deductions</strong> 估算 App 應有的 Net Pay，再與實際 Payslip Net Pay 比較。若 Gross 改變，實際 PAYG tax 也可能改變，所以這裡只作估算。</div>
+<div class="stats">
+  <div class="stat peach"><div class="k">EST. APP NET PAY</div><div class="v" id="estimatedAppNet">—</div></div>
+  <div class="stat"><div class="k">EST. NET DIFF<br><span style="font-weight:500">App est. net − Payslip net</span></div><div class="v" id="estimatedNetDiff">—</div></div>
+</div>
 <div id="payslipMatchNote" class="note" style="margin-top:12px">輸入實際 payslip 數字後，按「更新並核對」。</div>
 
 <div class="divider"></div>
@@ -264,7 +276,8 @@ const pinOverlay=$('pinOverlay'), pinSetupView=$('pinSetupView'), newPin=$('newP
       actualNormalHrs=$('actualNormalHrs'), actualOTHrs=$('actualOTHrs'), actualPaidRest=$('actualPaidRest'),
       actualGrossPay=$('actualGrossPay'), actualTax=$('actualTax'), actualDeductions=$('actualDeductions'), actualNetPay=$('actualNetPay'),
       diffNormalHrs=$('diffNormalHrs'), diffOTHrs=$('diffOTHrs'), diffPaidRest=$('diffPaidRest'), diffGrossPay=$('diffGrossPay'),
-      actualTaxOut=$('actualTaxOut'), actualNetPayOut=$('actualNetPayOut'), netCheckDiff=$('netCheckDiff'), payslipMatchNote=$('payslipMatchNote'),
+      actualTaxOut=$('actualTaxOut'), actualNetPayOut=$('actualNetPayOut'), payslipArithmeticDiff=$('payslipArithmeticDiff'),
+      estimatedAppNet=$('estimatedAppNet'), estimatedNetDiff=$('estimatedNetDiff'), payslipMatchNote=$('payslipMatchNote'),
       payslipLeaveType=$('payslipLeaveType'), actualLeaveHours=$('actualLeaveHours'),
       appLeaveHoursOut=$('appLeaveHoursOut'), payslipLeaveHoursOut=$('payslipLeaveHoursOut'), diffLeaveHours=$('diffLeaveHours');
 
@@ -664,21 +677,30 @@ function renderPayslipComparison(appNormal,appOT,appPaid,appGross){
   diffGrossPay.textContent=Number.isFinite(g)?fmtDiff(appGross-g,true):'—';
   actualTaxOut.textContent=Number.isFinite(tax)?'$'+tax.toFixed(2):'—';
   actualNetPayOut.textContent=Number.isFinite(net)?'$'+net.toFixed(2):'—';
-  const netDiff=(Number.isFinite(g)&&Number.isFinite(tax)&&Number.isFinite(ded)&&Number.isFinite(net))?(g-tax-ded-net):NaN;
-  netCheckDiff.textContent=Number.isFinite(netDiff)?fmtDiff(netDiff,true):'—';
+
+  // Payslip arithmetic check: checks only the internal maths of the payslip.
+  const arithmeticDiff=(Number.isFinite(g)&&Number.isFinite(tax)&&Number.isFinite(ded)&&Number.isFinite(net))?(g-tax-ded-net):NaN;
+  payslipArithmeticDiff.textContent=Number.isFinite(arithmeticDiff)?fmtDiff(arithmeticDiff,true):'—';
+
+  // Estimated App net: intentionally reuses the payslip tax/deductions for a quick cross-check.
+  // If App gross differs, the real PAYG withholding could also differ, so this is an estimate only.
+  const appNetEst=(Number.isFinite(tax)&&Number.isFinite(ded))?(appGross-tax-ded):NaN;
+  const appNetDiff=(Number.isFinite(appNetEst)&&Number.isFinite(net))?(appNetEst-net):NaN;
+  estimatedAppNet.textContent=Number.isFinite(appNetEst)?'$'+appNetEst.toFixed(2):'—';
+  estimatedNetDiff.textContent=Number.isFinite(appNetDiff)?fmtDiff(appNetDiff,true):'—';
+
   const checks=[];
   if(Number.isFinite(n))checks.push(Math.abs(appNormal-n)<=0.011);
   if(Number.isFinite(o))checks.push(Math.abs(appOT-o)<=0.011);
   if(Number.isFinite(p))checks.push(Math.abs(appPaid-p)<=0.011);
   if(Number.isFinite(g))checks.push(Math.abs(appGross-g)<=0.011);
-  if(Number.isFinite(netDiff))checks.push(Math.abs(netDiff)<=0.011);
   if(leaveType&&Number.isFinite(appLeave)&&Number.isFinite(payslipLeave))checks.push(Math.abs(appLeave-payslipLeave)<=0.011);
   if(!checks.length){
     payslipMatchNote.textContent='輸入實際 payslip 數字後，按「更新並核對」。';
   }else if(checks.every(Boolean)){
-    payslipMatchNote.innerHTML='<strong>✅ 與 Payslip 相符</strong>：目前輸入的核對項目都一致。';
+    payslipMatchNote.innerHTML='<strong>✅ App 與 Payslip 相符</strong>：目前輸入的工時、Leave、Paid Rest 與 Gross Pay 核對項目都一致。';
   }else{
-    payslipMatchNote.innerHTML='<strong>⚠️ 有差異</strong>：請檢查該 Pay Period 的每日工時、Leave、OT、Paid Rest 或 payslip 輸入值。';
+    payslipMatchNote.innerHTML='<strong>⚠️ App 與 Payslip 有差異</strong>：請檢查該 Pay Period 的每日工時、Leave、OT、Paid Rest 或 payslip 輸入值。Payslip Arithmetic Check 則是另一項獨立檢查。';
   }
 }
 
@@ -760,7 +782,7 @@ function updateStorageStatus(){
   storageStatus.textContent=count+' 天紀錄・已自動儲存';
 }
 function exportBackup(){
-  const payload={app:'Work Hours AU',schemaVersion:7.4,pinExcluded:true,exportedAt:new Date().toISOString(),entries:loadEntries(),settings:loadSettings(),payslips:loadPayslipActuals()};
+  const payload={app:'Work Hours AU',schemaVersion:7.5,pinExcluded:true,exportedAt:new Date().toISOString(),entries:loadEntries(),settings:loadSettings(),payslips:loadPayslipActuals()};
   const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
   const url=URL.createObjectURL(blob);
   const a=document.createElement('a');
