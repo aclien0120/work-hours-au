@@ -7,7 +7,6 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Work Hours AU">
-<link rel="manifest" href="manifest.json">
 
 <title>Work Hours AU</title>
 <style>
@@ -36,6 +35,27 @@ nav{position:fixed;left:50%;transform:translateX(-50%);bottom:12px;width:min(720
 .pin-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .pin-link{border:0;background:transparent;color:#78695C;font-size:12px;font-weight:700;text-decoration:underline;padding:10px}
 body.pin-locked .app,body.pin-locked nav{visibility:hidden}
+
+
+.period-picker-wrap{position:relative;min-width:0}
+.period-picker-btn{width:100%;height:100%;display:flex;align-items:center;justify-content:center;gap:7px;pointer-events:none}
+.period-picker-wrap select{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;-webkit-appearance:none;appearance:none}
+.period-picker-arrow{font-size:11px;transform:translateY(1px)}
+.period-progress{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 13px;border:1px solid var(--line);border-radius:16px;background:rgba(255,255,255,.72);margin-bottom:12px}
+.period-progress-text{font-size:13px;color:var(--muted);font-weight:700;line-height:1.35}
+.period-progress-text strong{color:var(--ink)}
+.btn-mini{border:0;border-radius:12px;padding:9px 11px;background:var(--goose);color:var(--ink);font-size:12px;font-weight:850;white-space:nowrap}
+
+
+.backup-reminder{display:none;margin:12px 0;padding:14px;border:1px solid #E8D6A8;border-radius:18px;background:rgba(255,247,214,.96);box-shadow:var(--shadow)}
+.backup-reminder.show{display:block}
+.backup-reminder-title{font-size:15px;font-weight:850;margin-bottom:5px}
+.backup-reminder-text{font-size:13px;color:var(--muted);line-height:1.45}
+.backup-reminder-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:11px}
+.backup-meta{margin-top:12px;padding:12px 14px;border:1px solid var(--line);border-radius:16px;background:rgba(255,255,255,.72)}
+.backup-meta-row{display:flex;justify-content:space-between;gap:12px;font-size:13px;line-height:1.55}
+.backup-meta-row span:first-child{color:var(--muted);font-weight:700}
+.backup-meta-row strong{text-align:right}
 
 </style>
 </head>
@@ -76,9 +96,19 @@ body.pin-locked .app,body.pin-locked nav{visibility:hidden}
 <div class="brand"><h1>Work Hours AU</h1><p>工時・加班・Paid Rest・Leave</p></div>
 <div class="pin-header-actions">
   <button class="pin-lock-btn" onclick="lockApp()">🔒 鎖定</button>
-  <div class="pill">v7.5</div>
+  <div class="pill">v7.7</div>
 </div>
 </header>
+
+<div id="backupReminder" class="backup-reminder">
+  <div class="backup-reminder-title">💾 備份提醒</div>
+  <div id="backupReminderText" class="backup-reminder-text">建議把目前工時資料匯出一份 JSON 備份。</div>
+  <div class="backup-reminder-actions">
+    <button class="btn btn-primary" type="button" onclick="backupNowFromReminder()">現在備份</button>
+    <button class="btn btn-secondary" type="button" onclick="snoozeBackupReminder()">7 天後提醒</button>
+  </div>
+</div>
+
 
 <section id="today" class="page">
 <div class="card">
@@ -105,17 +135,28 @@ body.pin-locked .app,body.pin-locked nav{visibility:hidden}
 <div class="card">
   <h2 class="section-title">兩週工時</h2>
   <div class="note" style="margin-bottom:14px">
-    Pay Period 以 <strong>13/07/2026</strong> 為第一期起始日，每 14 天自動切換。
+    Pay Period 以 <strong>13/07/2026</strong> 為第一期起始日，每 14 天自動切換。點「本期 ▼」可直接跳到任一期；選單中的 ✅ 代表已輸入的 Payslip 核對項目目前一致，⚠️ 代表仍有差異。
   </div>
   <div class="note" style="margin-bottom:14px;background:#FFF0EA">v7 已修正澳洲時區日期偏移問題。點選 17/07 時，編輯頁與儲存鍵都會維持 17/07，不再跳成 16/07。</div>
   <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px">
     <button class="btn btn-secondary" onclick="changePeriod(-1)">← 上一期</button>
-    <button class="btn btn-primary" onclick="goCurrentPeriod()">本期</button>
+
+    <div class="period-picker-wrap">
+      <button class="btn btn-primary period-picker-btn" type="button" tabindex="-1">
+        <span>本期</span><span class="period-picker-arrow">▼</span>
+      </button>
+      <select id="periodQuickSelect" aria-label="選擇 Pay Period" onchange="selectPeriodFromDropdown(this.value)"></select>
+    </div>
+
     <button class="btn btn-secondary" onclick="changePeriod(1)">下一期 →</button>
   </div>
   <div class="stat" style="margin-bottom:12px">
     <div class="k">目前 Pay Period</div>
     <div class="v" id="periodLabel" style="font-size:20px">—</div>
+  </div>
+  <div class="period-progress">
+    <div id="periodProgressText" class="period-progress-text">正在計算本期紀錄…</div>
+    <button id="nextMissingBtn" class="btn-mini" type="button" onclick="jumpToNextMissingDay()">補下一個未填</button>
   </div>
   <input id="periodStart" type="hidden">
   <div id="rows" class="rows"></div>
@@ -154,6 +195,11 @@ body.pin-locked .app,body.pin-locked nav{visibility:hidden}
 <h2 class="section-title">本機資料・備份</h2>
 <div class="note">資料會自動保存在這台裝置的 Work Hours AU 網站資料中。建議定期匯出備份，尤其是在更新 App、換手機或清除 Safari 資料之前。</div>
 <div class="stat" style="margin-top:12px"><div class="k">本機資料</div><div class="v" id="storageStatus" style="font-size:18px">—</div></div>
+<div class="backup-meta">
+  <div class="backup-meta-row"><span>上次備份</span><strong id="lastBackupStatus">尚未備份</strong></div>
+  <div class="backup-meta-row"><span>下次提醒</span><strong id="nextBackupReminderStatus">—</strong></div>
+</div>
+
 <div class="grid" style="margin-top:12px">
   <button class="btn btn-primary" onclick="exportBackup()">匯出備份</button>
   <button class="btn btn-secondary" onclick="openBackupPicker()">匯入備份</button>
@@ -163,7 +209,7 @@ body.pin-locked .app,body.pin-locked nav{visibility:hidden}
 <div class="note" style="margin-top:12px;background:#FFF0EA">
   <strong>v7 日期修復：</strong>已改用 iPhone 本地日曆日期，不再用 UTC 轉換。若舊版資料被整體錯移一天，v7 會在第一次開啟時自動修復，並保留一份修復前的本機副本。
 </div>
-<div class="note" style="margin-top:10px;background:#FFF7D6"><strong>v7.5 薪資核對：</strong>每日 leave 不再手動輸入 payroll 時數；App 以 7.6 hr/full day 獨立計算，payslip leave hours 改到 Check 頁輸入比對。</div>
+<div class="note" style="margin-top:10px;background:#FFF7D6"><strong>v7.5 薪資核對：</strong>每日 leave 不再手動輸入 payroll 時數；App 以 7.6 hr/full day 獨立計算，payslip leave hours 改到 Check 頁輸入比對。</div><div class="note" style="margin-top:10px;background:#FFF7D6"><strong>v7.7 備份提醒：</strong>有至少 5 天紀錄但從未備份，或距離上次備份已滿 14 天時，App 會提醒你匯出 JSON；也可選擇 7 天後再提醒。</div>
 <button class="btn btn-secondary btn-full" style="margin-top:10px" onclick="restorePreV7DateBackup()">復原 v7 日期修復前資料</button>
 </div>
 </section>
@@ -264,6 +310,8 @@ const pinOverlay=$('pinOverlay'), pinSetupView=$('pinSetupView'), newPin=$('newP
       normalOut=$('normalOut'), otOut=$('otOut'),
       paidRestOut=$('paidRestOut'), unpaidRestOut=$('unpaidRestOut'),
       periodLabel=$('periodLabel'), periodStart=$('periodStart'), rows=$('rows'),
+      periodQuickSelect=$('periodQuickSelect'), periodProgressText=$('periodProgressText'),
+      nextMissingBtn=$('nextMissingBtn'),
       employmentStart=$('employmentStart'), leaveAsOf=$('leaveAsOf'),
       ordinaryHoursWeek=$('ordinaryHoursWeek'), annualWeeks=$('annualWeeks'),
       eligibleOrdinary=$('eligibleOrdinary'), unpaidOrdinary=$('unpaidOrdinary'),
@@ -271,6 +319,8 @@ const pinOverlay=$('pinOverlay'), pinSetupView=$('pinSetupView'), newPin=$('newP
       annualUsedOut=$('annualUsedOut'), sickUsedOut=$('sickUsedOut'),
       annualBalance=$('annualBalance'), sickBalance=$('sickBalance'),
       storageStatus=$('storageStatus'), backupFile=$('backupFile'),
+      backupReminder=$('backupReminder'), backupReminderText=$('backupReminderText'),
+      lastBackupStatus=$('lastBackupStatus'), nextBackupReminderStatus=$('nextBackupReminderStatus'),
       checkPeriodLabel=$('checkPeriodLabel'), sumNormal=$('sumNormal'), sumOT=$('sumOT'),
       sumPaid=$('sumPaid'), sumPay=$('sumPay'), normalRate=$('normalRate'), otRate=$('otRate'),
       actualNormalHrs=$('actualNormalHrs'), actualOTHrs=$('actualOTHrs'), actualPaidRest=$('actualPaidRest'),
@@ -521,7 +571,7 @@ function saveEntry(){
     calc:calculate(ws,document.getElementById('start').value,document.getElementById('end').value,formulaLeaveHours)
   };
   const all=loadEntries();all[d]=entry;saveEntries(all);
-  renderTimesheet();renderSummary();renderLeave();updateStorageStatus();
+  renderTimesheet();renderSummary();renderLeave();renderPeriodOptions();updateStorageStatus();
   alert("已儲存");
 }
 const PAY_PERIOD_ANCHOR='2026-07-13';
@@ -541,16 +591,130 @@ function formatAU(iso){
   const d=new Date(iso+'T00:00:00');
   return d.toLocaleDateString('en-AU',{day:'2-digit',month:'2-digit',year:'numeric'});
 }
+
+function shortPeriodLabel(startISO){
+  const endISO=periodEndFromStart(startISO);
+  const s=dateFromKey(startISO), e=dateFromKey(endISO);
+  const sameYear=s.getFullYear()===e.getFullYear();
+  const startText=s.toLocaleDateString('en-AU',{day:'2-digit',month:'2-digit',year:sameYear?undefined:'numeric'});
+  const endText=e.toLocaleDateString('en-AU',{day:'2-digit',month:'2-digit',year:'numeric'});
+  return startText+' – '+endText;
+}
+
+function periodStatsForStart(startISO){
+  const entries=loadEntries();
+  let recorded=0, weekdays=0;
+  let normal=0,ot=0,paid=0;
+
+  for(let i=0;i<14;i++){
+    const iso=addDaysKey(startISO,i);
+    const d=dateFromKey(iso);
+    const dow=d.getDay();
+    if(dow!==0&&dow!==6) weekdays++;
+    const e=entries[iso];
+    if(e){
+      if(dow!==0&&dow!==6) recorded++;
+      normal+=(e.calc?.normal||0);
+      ot+=(e.calc?.ot||0);
+      paid+=(e.calc?.paid||0);
+    }
+  }
+
+  const actuals=loadPayslipActuals();
+  const a=actuals[startISO]||{};
+  const hasPayslip=[a.normalHrs,a.otHrs,a.paidRest,a.grossPay].some(v=>v!==undefined&&v!==null&&String(v)!=='');
+  let payslipStatus='none';
+
+  if(hasPayslip){
+    const s=loadSettings();
+    const gross=normal*s.normalRate+ot*s.otRate+paid*s.normalRate;
+    const checks=[];
+    const n=parseFloat(a.normalHrs),o=parseFloat(a.otHrs),p=parseFloat(a.paidRest),g=parseFloat(a.grossPay);
+    if(Number.isFinite(n))checks.push(Math.abs(normal-n)<=0.011);
+    if(Number.isFinite(o))checks.push(Math.abs(ot-o)<=0.011);
+    if(Number.isFinite(p))checks.push(Math.abs(paid-p)<=0.011);
+    if(Number.isFinite(g))checks.push(Math.abs(gross-g)<=0.011);
+    payslipStatus=checks.length&&checks.every(Boolean)?'match':'diff';
+  }
+
+  return {recorded,weekdays,payslipStatus};
+}
+
+function renderPeriodOptions(){
+  if(!periodQuickSelect)return;
+  const current=getPeriodStartForDate(todayISO());
+  const selected=periodStart.value||current;
+  let maxStart=selected>current?selected:current;
+  const periods=[];
+
+  for(let p=PAY_PERIOD_ANCHOR;p<=maxStart;p=addDaysKey(p,14)){
+    periods.push(p);
+  }
+
+  periods.reverse();
+  periodQuickSelect.innerHTML='';
+
+  periods.forEach(p=>{
+    const opt=document.createElement('option');
+    opt.value=p;
+    const st=periodStatsForStart(p);
+    const marker=st.payslipStatus==='match'?'✅ ':st.payslipStatus==='diff'?'⚠️ ':'';
+    const currentText=p===current?'本期 · ':'';
+    opt.textContent=marker+currentText+shortPeriodLabel(p);
+    opt.selected=p===selected;
+    periodQuickSelect.appendChild(opt);
+  });
+}
+
+function selectPeriodFromDropdown(startISO){
+  if(!startISO)return;
+  periodStart.value=startISO;
+  renderTimesheet();
+  renderSummary();
+  renderPeriodOptions();
+}
+
+function renderPeriodProgress(){
+  if(!periodStart.value)return;
+  const st=periodStatsForStart(periodStart.value);
+  const missing=Math.max(0,st.weekdays-st.recorded);
+  const statusText=st.payslipStatus==='match'?' · ✅ Payslip 已對上':st.payslipStatus==='diff'?' · ⚠️ Payslip 有差異':'';
+  periodProgressText.innerHTML=`本期已記錄 <strong>${st.recorded}/${st.weekdays}</strong> 個工作日${missing?` · 缺 <strong>${missing}</strong> 天`:' · 已完成'}${statusText}`;
+  nextMissingBtn.style.display=missing?'inline-block':'none';
+}
+
+function jumpToNextMissingDay(){
+  if(!periodStart.value)return;
+  const entries=loadEntries();
+
+  for(let i=0;i<14;i++){
+    const iso=addDaysKey(periodStart.value,i);
+    const d=dateFromKey(iso);
+    const dow=d.getDay();
+    if(dow===0||dow===6)continue;
+    if(!entries[iso]){
+      document.getElementById('date').value=iso;
+      document.getElementById('workStatus').value='Work';
+      document.getElementById('start').value='08:00';
+      document.getElementById('end').value='16:30';
+      showPage('today',document.querySelectorAll('nav button')[0]);
+      updateStatusUI();
+      updatePreview();
+      return;
+    }
+  }
+}
+
 function goCurrentPeriod(){
   periodStart.value=getPeriodStartForDate(todayISO());
-  renderTimesheet(); renderSummary();
+  renderTimesheet();renderSummary();renderPeriodOptions();
 }
 function changePeriod(direction){
   const current=periodStart.value||getPeriodStartForDate(todayISO());
   const next=addDaysKey(current,direction*14);
   if(next<PAY_PERIOD_ANCHOR) return;
   periodStart.value=next;
-  renderTimesheet();renderSummary();
+  renderTimesheet();renderSummary();renderPeriodOptions();
 }
 function renderTimesheet(){
   const startVal=periodStart.value;
@@ -578,6 +742,7 @@ function renderTimesheet(){
     };
     rows.appendChild(div);
   }
+  renderPeriodProgress();
 }
 function periodEntries(){
   const startVal=periodStart.value;
@@ -626,6 +791,7 @@ function savePayslipActual(){
     leaveType,leaveHoursByType
   };
   savePayslipActuals(all);
+  renderPeriodOptions();
 }
 
 function appExpectedLeaveHours(type){
@@ -776,19 +942,120 @@ function saveSettings(){
 }
 
 function updateStatusUI(){return}
+
+// ---------- Backup reminder ----------
+const BACKUP_LAST_KEY='wha_last_backup_at';
+const BACKUP_SNOOZE_KEY='wha_backup_snooze_until';
+const BACKUP_REMINDER_DAYS=14;
+const BACKUP_FIRST_REMINDER_MIN_ENTRIES=5;
+
+function parseStoredDateTime(value){
+  if(!value)return null;
+  const d=new Date(value);
+  return Number.isNaN(d.getTime())?null:d;
+}
+function addCalendarDays(d,days){
+  const x=new Date(d);
+  x.setDate(x.getDate()+days);
+  return x;
+}
+function formatLocalDateTime(d){
+  if(!d)return '尚未備份';
+  return d.toLocaleString('zh-TW',{
+    year:'numeric',month:'2-digit',day:'2-digit',
+    hour:'2-digit',minute:'2-digit',hour12:false
+  });
+}
+function backupReminderState(){
+  const now=new Date();
+  const entryCount=Object.keys(loadEntries()).length;
+  const last=parseStoredDateTime(safeGetItem(BACKUP_LAST_KEY));
+  const snooze=parseStoredDateTime(safeGetItem(BACKUP_SNOOZE_KEY));
+
+  if(snooze && snooze>now){
+    return {due:false,reason:'snoozed',entryCount,last,next:snooze};
+  }
+
+  if(!last){
+    const due=entryCount>=BACKUP_FIRST_REMINDER_MIN_ENTRIES;
+    return {
+      due,
+      reason:due?'never-backed-up':'not-enough-records',
+      entryCount,
+      last:null,
+      next:null
+    };
+  }
+
+  const next=addCalendarDays(last,BACKUP_REMINDER_DAYS);
+  return {
+    due:now>=next,
+    reason:now>=next?'overdue':'recent',
+    entryCount,last,next
+  };
+}
+function renderBackupReminder(){
+  const st=backupReminderState();
+
+  if(lastBackupStatus){
+    lastBackupStatus.textContent=st.last?formatLocalDateTime(st.last):'尚未備份';
+  }
+
+  if(nextBackupReminderStatus){
+    if(st.reason==='not-enough-records'){
+      nextBackupReminderStatus.textContent=`累積 ${BACKUP_FIRST_REMINDER_MIN_ENTRIES} 筆紀錄後提醒`;
+    }else if(st.reason==='snoozed'){
+      nextBackupReminderStatus.textContent='暫緩至 '+formatLocalDateTime(st.next);
+    }else if(!st.last){
+      nextBackupReminderStatus.textContent='目前建議備份';
+    }else if(st.due){
+      nextBackupReminderStatus.textContent='已到期';
+    }else{
+      nextBackupReminderStatus.textContent=formatLocalDateTime(st.next);
+    }
+  }
+
+  if(!backupReminder)return;
+  backupReminder.classList.toggle('show',st.due);
+
+  if(st.due && backupReminderText){
+    if(st.reason==='never-backed-up'){
+      backupReminderText.textContent=`目前已有 ${st.entryCount} 天紀錄，但尚未建立備份。建議先匯出一份 JSON 備份到 iCloud Drive 或 Files。`;
+    }else{
+      backupReminderText.textContent=`距離上次備份已超過 ${BACKUP_REMINDER_DAYS} 天。建議重新匯出一份最新備份。`;
+    }
+  }
+}
+function markBackupCreated(){
+  safeSetItem(BACKUP_LAST_KEY,new Date().toISOString());
+  safeRemoveItem(BACKUP_SNOOZE_KEY);
+  renderBackupReminder();
+}
+function snoozeBackupReminder(){
+  const until=addCalendarDays(new Date(),7);
+  safeSetItem(BACKUP_SNOOZE_KEY,until.toISOString());
+  renderBackupReminder();
+}
+function backupNowFromReminder(){
+  exportBackup();
+}
+
 function updateStorageStatus(){
-  if(!document.getElementById('storageStatus')) return;
-  const count=Object.keys(loadEntries()).length;
-  storageStatus.textContent=count+' 天紀錄・已自動儲存';
+  if(document.getElementById('storageStatus')){
+    const count=Object.keys(loadEntries()).length;
+    storageStatus.textContent=count+' 天紀錄・已自動儲存';
+  }
+  renderBackupReminder();
 }
 function exportBackup(){
-  const payload={app:'Work Hours AU',schemaVersion:7.5,pinExcluded:true,exportedAt:new Date().toISOString(),entries:loadEntries(),settings:loadSettings(),payslips:loadPayslipActuals()};
+  const payload={app:'Work Hours AU',schemaVersion:7.7,pinExcluded:true,exportedAt:new Date().toISOString(),entries:loadEntries(),settings:loadSettings(),payslips:loadPayslipActuals()};
   const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
   const url=URL.createObjectURL(blob);
   const a=document.createElement('a');
   a.href=url;a.download='Work_Hours_AU_backup_'+todayISO()+'.json';
   document.body.appendChild(a);a.click();a.remove();
   setTimeout(()=>URL.revokeObjectURL(url),1000);
+  markBackupCreated();
 }
 async function importBackup(input){
   const file=input.files&&input.files[0];
@@ -930,7 +1197,7 @@ repairV4SafariStatusBug();
 recalculateExistingEntriesV72();
 recalculateExistingEntriesV73();
 normalizeLeaveEntriesV74();
-date.value=todayISO();leaveAsOf.value=todayISO();periodStart.value=getPeriodStartForDate(todayISO());['workStatus','start','end'].forEach(id=>document.getElementById(id).addEventListener('change',updatePreview));document.getElementById('leaveAsOf').addEventListener('change',renderLeave);document.getElementById('employmentStart').addEventListener('change',renderLeave);document.getElementById('ordinaryHoursWeek').addEventListener('change',renderLeave);document.getElementById('annualWeeks').addEventListener('change',renderLeave);payslipLeaveType.addEventListener('change',handlePayslipLeaveTypeChange);actualLeaveHours.addEventListener('change',()=>{saveCurrentLeaveHours();renderSummary();});updateStatusUI();updatePreview();renderTimesheet();renderSummary();renderLeave();updateStorageStatus();
+date.value=todayISO();leaveAsOf.value=todayISO();periodStart.value=getPeriodStartForDate(todayISO());['workStatus','start','end'].forEach(id=>document.getElementById(id).addEventListener('change',updatePreview));document.getElementById('leaveAsOf').addEventListener('change',renderLeave);document.getElementById('employmentStart').addEventListener('change',renderLeave);document.getElementById('ordinaryHoursWeek').addEventListener('change',renderLeave);document.getElementById('annualWeeks').addEventListener('change',renderLeave);payslipLeaveType.addEventListener('change',handlePayslipLeaveTypeChange);actualLeaveHours.addEventListener('change',()=>{saveCurrentLeaveHours();renderSummary();});updateStatusUI();updatePreview();renderPeriodOptions();renderTimesheet();renderSummary();renderLeave();updateStorageStatus();
 if('serviceWorker' in navigator){window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}))}
 </script>
 </body>
